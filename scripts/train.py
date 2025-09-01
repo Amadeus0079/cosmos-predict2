@@ -75,6 +75,10 @@ For python-based LazyConfig, use "path.key=value".
     args = parser.parse_args()
     config_module = get_config_module(args.config)
     config = importlib.import_module(config_module).make_config()
+    # print("************************* Config *************************")
+    # print(config)
+    # print("************************* Opts *************************")
+    # print(args.opts)
     config = override(config, args.opts)
     if args.dryrun:
         logging.info(

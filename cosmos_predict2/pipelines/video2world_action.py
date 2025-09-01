@@ -98,12 +98,16 @@ class Video2WorldActionConditionedPipeline(Video2WorldPipeline):
             sum(p.numel() for p in pipe.conditioner.parameters() if p.requires_grad) == 0
         ), "conditioner should not have learnable parameters"
 
-        if load_prompt_refiner:
+        if load_prompt_refiner and config.prompt_refiner_config.enabled:
+            log.info("Prompt refiner is enabled. Loading CosmosReason1 model.")
             pipe.prompt_refiner = CosmosReason1(
                 checkpoint_dir=config.prompt_refiner_config.checkpoint_dir,
                 offload_model_to_cpu=config.prompt_refiner_config.offload_model_to_cpu,
-                enabled=config.prompt_refiner_config.enabled,
+                enabled=True,
             )
+        else:
+            log.info("Prompt refiner is disabled by config or argument. Skipping model loading.")
+            pipe.prompt_refiner = None
 
         if config.guardrail_config.enabled:
             from cosmos_predict2.auxiliary.guardrail.common import presets as guardrail_presets

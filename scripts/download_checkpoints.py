@@ -116,38 +116,53 @@ MD5_CHECKSUM_LOOKUP = {
 }
 
 
+# 替换成这个新版本
 def validate_files(checkpoints_dir, model_name, verify_md5=False, **download_kwargs):
-    for key, value in MD5_CHECKSUM_LOOKUP.items():
-        if key.startswith(model_name + "/"):
-            if "allow_patterns" in download_kwargs:
-                # only check if the key matches the allow_patterns
-                relative_path = key[len(model_name + "/") :]
-                if not fnmatch.fnmatch(relative_path, download_kwargs["allow_patterns"]):
-                    continue
-            if "ignore_patterns" in download_kwargs:
-                # only check if the key does not match the ignore_patterns
-                relative_path = key[len(model_name + "/") :]
-                if any(fnmatch.fnmatch(relative_path, pattern) for pattern in download_kwargs["ignore_patterns"]):
-                    continue
-            file_path = os.path.join(checkpoints_dir, key)
-            # File must exist
-            if not os.path.exists(file_path):
-                print(f"\033[93mCheckpoint {key} does not exist.\033[0m")
+    """
+    一个修改后的、内存安全的验证函数。
+    它只检查文件是否存在且大小不为零，避免读取大文件。
+    MD5校验只在用户明确使用 --verify_md5 参数时才触发。
+    """
+    # 筛选出与当前模型相关的预期文件
+    expected_files = {k: v for k, v in MD5_CHECKSUM_LOOKUP.items() if k.startswith(model_name + "/")}
+    
+    # 如果这个模型在我们的MD5列表里没有任何记录，我们只检查文件夹是否存在
+    if not expected_files:
+        model_dir = os.path.join(checkpoints_dir, model_name)
+        if os.path.exists(model_dir) and any(os.scandir(model_dir)):
+            print(f"\033[92mDirectory for {model_name} exists. Assuming complete.\033[0m")
+            return True
+        else:
+            print(f"\033[93mDirectory for {model_name} is missing or empty.\033[0m")
+            return False
+
+    # 对有MD5记录的文件进行检查
+    for key, expected_md5 in expected_files.items():
+        file_path = os.path.join(checkpoints_dir, key)
+
+        # 检查1：文件是否存在且非空
+        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+            print(f"\033[93mCheckpoint {key} does not exist or is empty.\033[0m")
+            return False
+
+        # 检查2：只有在用户明确要求时，才进行消耗内存的MD5校验
+        if verify_md5:
+            print(f"Verifying MD5 checksum of checkpoint {key}...")
+            with open(file_path, "rb") as f:
+                # 注意：这里依然会读取大文件，所以只有在绝对需要时才使用 --verify_md5
+                file_md5 = hashlib.md5(f.read()).hexdigest()
+            if file_md5 != expected_md5:
+                print(f"\033[91mMD5 checksum of checkpoint {key} does not match.\033[0m")
+                # 删除损坏的文件，以便重新下载
+                os.remove(file_path)
                 return False
-            # Verify MD5 checksum if requested
-            if verify_md5:
-                print(f"Verifying MD5 checksum of checkpoint {key}...")
-                with open(file_path, "rb") as f:
-                    file_md5 = hashlib.md5(f.read()).hexdigest()
-                if file_md5 != value:
-                    print(f"\033[93mMD5 checksum of checkpoint {key} does not match.\033[0m")
-                    return False
+
     if verify_md5:
         print(f"\033[92mModel checkpoints for {model_name} exist with matched MD5 checksums.\033[0m")
     else:
-        print(f"\033[92mFiles for {model_name} already exist\033[0m \033[93m(MD5 not verified).\033[0m")
+        print(f"\033[92mFiles for {model_name} exist (MD5 not verified).\033[0m")
+    
     return True
-
 
 def download_model(checkpoint_dir, repo_id, verify_md5=False, **download_kwargs):
     local_dir = os.path.join(checkpoint_dir, repo_id)
@@ -199,7 +214,7 @@ def main(args):
         download_model(args.checkpoint_dir, repo_id, verify_md5=args.verify_md5)
 
     # Download T5 model
-    download_model(args.checkpoint_dir, "google-t5/t5-11b", verify_md5=args.verify_md5, ignore_patterns=["tf_model.h5"])
+    # download_model(args.checkpoint_dir, "google-t5/t5-11b", verify_md5=args.verify_md5, ignore_patterns=["tf_model.h5"])
 
     # Download the guardrail models
     download_model(args.checkpoint_dir, "nvidia/Cosmos-Guardrail1", verify_md5=args.verify_md5)

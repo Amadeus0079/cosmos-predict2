@@ -25,7 +25,7 @@ predict2_video2world_2b_action_conditioned_training = dict(
         {"override /model": "predict2_v2w_2b_action_conditioned_fsdp"},
         {"override /optimizer": "fusedadamw"},
         {"override /ckpt_type": "standard"},
-        {"override /dataloader_train": "bridge_train"},
+        {"override /dataloader_train": "robocasa_train"},
         "_self_",
     ],
     model=dict(
@@ -38,10 +38,13 @@ predict2_video2world_2b_action_conditioned_training = dict(
         context_parallel_size=1,
     ),
     dataloader_train=dict(
-        batch_size=2,
+        batch_size=8,
     ),
     trainer=dict(
         distributed_parallelism="fsdp",
+    ),
+    checkpoint=dict(
+        save_iter=1000,
     ),
 )
 

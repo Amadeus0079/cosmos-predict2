@@ -30,9 +30,12 @@ from megatron.core import parallel_state
 from cosmos_predict2.configs.action_conditioned.config import (
     PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED,
 )
+from cosmos_predict2.data.action_conditioned.action_conditioned_dataset import ActionConditionedDataset
+from cosmos_predict2.configs.action_conditioned.defaults.data import robocasa_val_dataset
 from cosmos_predict2.pipelines.video2world_action import Video2WorldActionConditionedPipeline
 from imaginaire.utils import distributed, log, misc
 from imaginaire.utils.io import save_image_or_video
+from imaginaire.lazy_config import instantiate
 
 
 def get_action_sequence(annotation_path):
@@ -167,38 +170,22 @@ def read_first_frame(video_path):
 
 
 def process_single_generation(
-    pipe, input_path, input_annotation, output_path, guidance, seed, chunk_size, autoregressive
+    pipe, input_video, input_actions, output_path, guidance, seed, chunk_size, autoregressive
 ):
-    actions = get_action_sequence(input_annotation)
-    first_frame = read_first_frame(input_path)
+    actions = input_actions.cpu().detach().numpy()
+    first_frame = input_video.permute(1,2,3,0)[0].cpu().detach().numpy()
 
-    log.info(f"Running Video2WorldPipeline\ninput: {input_path}")
-
-    if autoregressive:
-        log.info("Using autoregressive mode")
-        video_chunks = []
-        for i in range(0, len(actions), chunk_size):
-            if actions[i : i + chunk_size].shape[0] < chunk_size:
-                log.info("Reached end of actions")
-                break
-            video = pipe(
-                first_frame,
-                actions[i : i + chunk_size],
-                num_conditional_frames=1,
-                guidance=guidance,
-                seed=i,
-            )
-            first_frame = ((video[0, :, -1].permute(1, 2, 0).cpu().numpy() / 2 + 0.5).clip(0, 1) * 255).astype(np.uint8)
-            video_chunks.append(video)
-        video = torch.cat([video_chunks[0]] + [chunk[:, :, :-1] for chunk in video_chunks[1:]], dim=2)
-    else:
-        video = pipe(
-            first_frame,
-            actions[:chunk_size],
-            num_conditional_frames=1,
-            guidance=guidance,
-            seed=seed,
-        )
+    video = pipe(
+        first_frame,
+        actions[:chunk_size],
+        num_conditional_frames=1,
+        guidance=guidance,
+        seed=seed,
+    )
+    
+    # Visualize the original Image
+    normalized_input_video = (input_video.unsqueeze(0).to(video.device) / 255.0) * 2 - 1
+    video = torch.cat((normalized_input_video, video), dim=4)
 
     if video is not None:
         # save the generated video
@@ -212,17 +199,21 @@ def process_single_generation(
     return False
 
 
-def generate_video(args: argparse.Namespace, pipe: Video2WorldActionConditionedPipeline) -> None:
-    process_single_generation(
-        pipe=pipe,
-        input_path=args.input_video,
-        input_annotation=args.input_annotation,
-        output_path=args.save_path,
-        guidance=args.guidance,
-        seed=args.seed,
-        chunk_size=args.chunk_size,
-        autoregressive=args.autoregressive,
-    )
+def generate_video(args: argparse.Namespace, pipe: Video2WorldActionConditionedPipeline, batch_data) -> None:
+    for i in range(0, 1000, 100):
+        batch_data = val_dataset[i]
+        process_single_generation(
+            pipe=pipe,
+            # input_path=args.input_video,
+            # input_annotation=args.input_annotation,
+            input_video=batch_data['video'],
+            input_actions=batch_data['action'],
+            output_path=f"output/jigsaw/generated_video_step2k_{i}.mp4",
+            guidance=args.guidance,
+            seed=args.seed,
+            chunk_size=args.chunk_size,
+            autoregressive=args.autoregressive,
+        )
     return
 
 
@@ -236,9 +227,10 @@ def cleanup_distributed():
 
 if __name__ == "__main__":
     args = parse_args()
+    val_dataset = instantiate(robocasa_val_dataset)
     try:
         pipe = setup_pipeline(args)
-        generate_video(args, pipe)
+        generate_video(args, pipe, val_dataset)
     finally:
         # Make sure to clean up the distributed environment
         cleanup_distributed()
