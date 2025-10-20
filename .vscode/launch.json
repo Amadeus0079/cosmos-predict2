@@ -5,25 +5,46 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "val",
+            "name": "multiview_val",
             "type": "debugpy",
             "request": "launch",
-            "module": "examples.video2world_action_val",
+            "module": "examples.video2world_multiview_val",
             "console": "integratedTerminal",
             "args": [
+                "--model_size=2B",
+                "--dit_path=/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/checkpoints/cosmos_predict2/debug/predict2_video2world_2b_action_conditioned_training_2025-09-04_17-50-49/checkpoints/model/iter_000016000.pt",
+                "--save_path=output/generated_video_0.mp4",
+                "--guidance=0",
+                "--seed=0",
+                "--disable_guardrail",
+                "--disable_prompt_refiner"
             ]
         },
         {
             "name": "train",
             "type": "debugpy",
             "request": "launch",
-            "module": "scripts.train",
+            "module": "torch.distributed.run",
             "console": "integratedTerminal",
+            "env":{"CUDA_VISIBLE_DEVICES":"2"},
             "args": [
+                "--nproc_per_node=1",
+                "--master_port=12346",
+                "-m",
+                "scripts.train",
                 "--config=cosmos_predict2/configs/base/config.py",
                 "--",
                 "experiment='predict2_video2world_2b_action_conditioned_training'",
             ]
-        }
+        },
+        {
+            "name": "dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "cosmos_predict2.data.action_conditioned.multiview_dataset",
+            "console": "integratedTerminal",
+            "args": [
+            ]
+        },
     ]
 }

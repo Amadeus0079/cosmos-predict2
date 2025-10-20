@@ -17,12 +17,8 @@ from hydra.core.config_store import ConfigStore
 
 from cosmos_predict2.configs.action_conditioned.config import (
     PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED,
-    PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED_CONCAT,
-    PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED_DEPTH
 )
 from cosmos_predict2.configs.action_conditioned.config_concat import PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED_CONCAT
-from cosmos_predict2.configs.action_conditioned.config_depth import PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED_DEPTH
-from cosmos_predict2.models.video2world_action_model import Predict2Video2WorldActionConditionedModel
 from cosmos_predict2.models.video2world_multiview_model import Predict2Video2WorldMultiviewModel
 from cosmos_predict2.models.video2world_multiview_depth_model import Predict2Video2WorldMultiviewDepthModel
 from cosmos_predict2.models.video2world_model import Predict2ModelManagerConfig, Predict2Video2WorldModelConfig
@@ -32,7 +28,7 @@ PREDICT2_V2W_2B_ACTION_CONDITIONED_FSDP_CONFIG = dict(
     trainer=dict(
         distributed_parallelism="fsdp",
     ),
-    model=L(Predict2Video2WorldActionConditionedModel)(
+    model=L(Predict2Video2WorldMultiviewModel)(
         config=Predict2Video2WorldModelConfig(
             pipe_config=PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED,
             model_manager_config=L(Predict2ModelManagerConfig)(
@@ -45,22 +41,6 @@ PREDICT2_V2W_2B_ACTION_CONDITIONED_FSDP_CONFIG = dict(
     ),
 )
 
-PREDICT2_V2W_2B_ACTION_CONDITIONED_FSDP_CONFIG_CONCAT = dict(
-    trainer=dict(
-        distributed_parallelism="fsdp",
-    ),
-    model=L(Predict2Video2WorldMultiviewModel)(
-        config=Predict2Video2WorldModelConfig(
-            pipe_config=PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED_CONCAT,
-            model_manager_config=L(Predict2ModelManagerConfig)(
-                dit_path="checkpoints/nvidia/Cosmos-Predict2-2B-Video2World/model-720p-16fps.pt",
-                text_encoder_path="",  # Do not load text encoder for training.
-            ),
-            fsdp_shard_size=-1,
-        ),
-        _recursive_=False,
-    ),
-)
 
 def register_model_action_conditioned() -> None:
     cs = ConfigStore.instance()
@@ -70,10 +50,4 @@ def register_model_action_conditioned() -> None:
         package="_global_",
         name="predict2_v2w_2b_action_conditioned_fsdp",
         node=PREDICT2_V2W_2B_ACTION_CONDITIONED_FSDP_CONFIG,
-    )
-    cs.store(
-        group="model",
-        package="_global_",
-        name="predict2_v2w_2b_action_conditioned_fsdp_concat",
-        node=PREDICT2_V2W_2B_ACTION_CONDITIONED_FSDP_CONFIG_CONCAT,
     )

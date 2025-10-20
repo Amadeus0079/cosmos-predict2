@@ -24,18 +24,18 @@ import random
 import traceback
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+import cv2
 import imageio
 import numpy as np
 import torch
 from einops import rearrange
 from torch.utils.data import Dataset
 from torchvision import transforms as T
+from torchvision import utils as vutils
 from tqdm import tqdm
-
+import open3d as o3d
 import pytorch3d
 from pytorch3d.structures import Pointclouds
-from pytorch3d.io import save_ply
 from pytorch3d.renderer import (
     FoVPerspectiveCameras,
     PointsRasterizationSettings,
@@ -49,34 +49,11 @@ from cosmos_predict2.data.action_conditioned.dataset_utils import (
     ToTensorVideo,
     euler2rotm,
     rotm2euler,
+    rotvec2rotm,
+    rotm2rotvec,
+    merge_pointclouds,
+    pointclouds_world2cam,
 )
-
-
-def save_pointcloud_to_ply(pointcloud, output_path, ascii=True):
-    """
-    将PyTorch3D的Pointclouds对象保存为PLY文件
-    
-    参数:
-        pointcloud: PyTorch3D的Pointclouds对象
-        output_path: 输出PLY文件路径（如"output.ply"）
-        ascii: 是否以ASCII格式保存，默认为True（便于查看）
-    """
-    # 提取点坐标和颜色
-    # 注意：Pointclouds可能包含多个点云，这里取第一个
-    points = pointcloud.points_list()[0]  # 形状为(N, 3)
-    colors = pointcloud.features_list()[0]  # 形状为(N, 3)，假设是RGB颜色
-    
-    # 确保颜色在[0, 255]范围（如果原来在[0,1]范围需要转换）
-    if colors.max() <= 1.0:
-        colors = (colors * 255).byte()
-    
-    # 保存为PLY文件
-    save_ply(
-        output_path,
-        verts=points,
-        ascii=ascii
-    )
-    print(f"点云已保存到: {output_path}")
 
 
 class MultiViewDataset(Dataset):
@@ -100,6 +77,7 @@ class MultiViewDataset(Dataset):
         do_evaluate=False,
         load_t5_embeddings=False,
         load_action=True,
+        load_state=True,
         mode="train",
     ):
         """Dataset class for loading 3D robot action-conditioned data.
@@ -164,13 +142,16 @@ class MultiViewDataset(Dataset):
         self.pre_encode = pre_encode
         self.load_t5_embeddings = load_t5_embeddings
         self.load_action = load_action
+        self.load_state = load_state
 
         self.cam_ids = cam_ids
+        self.gt_cams = gt_cams
+        self.pred_cams = pred_cams
         self.accumulate_action = accumulate_action
 
-        self.action_dim = 7  # ee xyz (3) + ee euler (3) + gripper(1)
+        self.action_dim = 7  # ee xyz (3) + ee rotvec (3) + gripper(1)
         self.c_act_scaler = [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 1.0]
-        self.c_act_scaler = np.array(self.c_act_scaler, dtype=float)
+        self.c_act_scaler = torch.tensor(self.c_act_scaler, dtype=float)
         self.ann_files = self._init_anns(self.data_path)
 
         print(f"{len(self.ann_files)} trajectories in total")
@@ -194,6 +175,7 @@ class MultiViewDataset(Dataset):
             ]
         )
         self.not_norm_preprocess = T.Compose([ToTensorVideo(), Resize_Preprocess(tuple(video_size))])
+        self.depth_preprocess = Resize_Preprocess(tuple(video_size))
 
     def __str__(self):
         return f"{len(self.ann_files)} samples from {self.data_path}"
@@ -289,11 +271,16 @@ class MultiViewDataset(Dataset):
         all_depths = np.load(depth_path)
         depths = all_depths[frame_ids]
         depths = torch.tensor(depths)
+    
+        depths = torch.flip(depths, dims=[-3])
+        depths = depths.permute(0, 3, 1, 2)
+        depths = self.depth_preprocess(depths)  # [T, C, H, W]
         return depths
 
     def _get_robot_states(self, label, frame_ids):
         all_states = np.array(label["state"])
-        all_cont_gripper_states = np.array(label["continuous_gripper_state"])
+        # all_cont_gripper_states = np.array(label["continuous_gripper_state"])
+        all_cont_gripper_states = np.array(label["state"])[:, 6]
         states = all_states[frame_ids]
         cont_gripper_states = all_cont_gripper_states[frame_ids]
         arm_states = states[:, :6]
@@ -303,7 +290,8 @@ class MultiViewDataset(Dataset):
 
     def _get_all_robot_states(self, label, frame_ids):
         all_states = np.array(label["state"])
-        all_cont_gripper_states = np.array(label["continuous_gripper_state"])
+        # all_cont_gripper_states = np.array(label["continuous_gripper_state"])
+        all_cont_gripper_states = np.array(label["state"])[:, 6]
         states = all_states[frame_ids]
         cont_gripper_states = all_cont_gripper_states[frame_ids]
         arm_states = states[:, :6]
@@ -315,15 +303,15 @@ class MultiViewDataset(Dataset):
         if accumulate_action:
             first_xyz = arm_states[0, 0:3]
             first_rpy = arm_states[0, 3:6]
-            first_rotm = euler2rotm(first_rpy)
+            first_rotm = rotvec2rotm(first_rpy)
             for k in range(1, action_num + 1):
                 curr_xyz = arm_states[k, 0:3]
                 curr_rpy = arm_states[k, 3:6]
                 curr_gripper = gripper_states[k]
-                curr_rotm = euler2rotm(curr_rpy)
+                curr_rotm = rotvec2rotm(curr_rpy)
                 rel_xyz = np.dot(first_rotm.T, curr_xyz - first_xyz)
                 rel_rotm = first_rotm.T @ curr_rotm
-                rel_rpy = rotm2euler(rel_rotm)
+                rel_rpy = rotm2rotvec(rel_rotm)
                 action[k - 1, 0:3] = rel_xyz
                 action[k - 1, 3:6] = rel_rpy
                 action[k - 1, 6] = curr_gripper
@@ -331,14 +319,14 @@ class MultiViewDataset(Dataset):
             for k in range(1, action_num + 1):
                 prev_xyz = arm_states[k - 1, 0:3]
                 prev_rpy = arm_states[k - 1, 3:6]
-                prev_rotm = euler2rotm(prev_rpy)
+                prev_rotm = rotvec2rotm(prev_rpy)
                 curr_xyz = arm_states[k, 0:3]
                 curr_rpy = arm_states[k, 3:6]
                 curr_gripper = gripper_states[k]
-                curr_rotm = euler2rotm(curr_rpy)
+                curr_rotm = rotvec2rotm(curr_rpy)
                 rel_xyz = np.dot(prev_rotm.T, curr_xyz - prev_xyz)
                 rel_rotm = prev_rotm.T @ curr_rotm
-                rel_rpy = rotm2euler(rel_rotm)
+                rel_rpy = rotm2rotvec(rel_rotm)
                 action[k - 1, 0:3] = rel_xyz
                 action[k - 1, 3:6] = rel_rpy
                 action[k - 1, 6] = curr_gripper
@@ -349,15 +337,15 @@ class MultiViewDataset(Dataset):
         if accumulate_action:
             first_xyz = arm_states[0, 0:3]
             first_rpy = arm_states[0, 3:6]
-            first_rotm = euler2rotm(first_rpy)
+            first_rotm = rotvec2rotm(first_rpy)
             for k in range(1, self.sequence_length):
                 curr_xyz = arm_states[k, 0:3]
                 curr_rpy = arm_states[k, 3:6]
                 curr_gripper = gripper_states[k]
-                curr_rotm = euler2rotm(curr_rpy)
+                curr_rotm = rotvec2rotm(curr_rpy)
                 rel_xyz = np.dot(first_rotm.T, curr_xyz - first_xyz)
                 rel_rotm = first_rotm.T @ curr_rotm
-                rel_rpy = rotm2euler(rel_rotm)
+                rel_rpy = rotm2rotvec(rel_rotm)
                 action[k - 1, 0:3] = rel_xyz
                 action[k - 1, 3:6] = rel_rpy
                 action[k - 1, 6] = curr_gripper
@@ -365,14 +353,14 @@ class MultiViewDataset(Dataset):
             for k in range(1, self.sequence_length):
                 prev_xyz = arm_states[k - 1, 0:3]
                 prev_rpy = arm_states[k - 1, 3:6]
-                prev_rotm = euler2rotm(prev_rpy)
+                prev_rotm = rotvec2rotm(prev_rpy)
                 curr_xyz = arm_states[k, 0:3]
                 curr_rpy = arm_states[k, 3:6]
                 curr_gripper = gripper_states[k]
-                curr_rotm = euler2rotm(curr_rpy)
+                curr_rotm = rotvec2rotm(curr_rpy)
                 rel_xyz = np.dot(prev_rotm.T, curr_xyz - prev_xyz)
                 rel_rotm = prev_rotm.T @ curr_rotm
-                rel_rpy = rotm2euler(rel_rotm)
+                rel_rpy = rotm2rotvec(rel_rotm)
                 action[k - 1, 0:3] = rel_xyz
                 action[k - 1, 3:6] = rel_rpy
                 action[k - 1, 6] = curr_gripper
@@ -391,20 +379,14 @@ class MultiViewDataset(Dataset):
     
     def _rgbd_to_pointcloud(self, rgb, depth, intrinsics, extrinsics, depth_scale=1):
         """
-        从RGB图像和深度图生成点云
-        
-        参数:
-            rgb_path: RGB图像路径
-            depth_path: 深度图路径
-            intrinsics: 相机内参矩阵 (3x3)
-            extrinsics: 相机外参矩阵 (4x4)
-            depth_scale: 深度图缩放因子，将像素值转换为实际深度(米)
-            
-        返回:
-            pointcloud: PyTorch3D的Pointclouds对象
+        rgb: torch.Tensor [C, H, W]
+        depth: torch.Tensor [1, H, W]
+        intrinsics: torch.Tensor [3, 3]
+        extrinsics: torch.Tensor [4, 4]
         """
         # 读取图像
         rgb = rgb / 255.0  # 转换为[0, 1]范围内的浮点数
+        device = rgb.device
         
         # 获取图像尺寸
         _, H, W = rgb.shape
@@ -413,8 +395,8 @@ class MultiViewDataset(Dataset):
         u = torch.linspace(0, W-1, W)
         v = torch.linspace(0, H-1, H)
         u, v = torch.meshgrid(u, v, indexing='xy')  # (H, W)
-        u = u.flatten()  # 展平为一维
-        v = v.flatten()
+        u = u.flatten().to(device)  # 展平为一维
+        v = v.flatten().to(device)
         
         # 深度值转换为米
         z = depth.squeeze().flatten() / depth_scale  # (H*W,)
@@ -435,7 +417,7 @@ class MultiViewDataset(Dataset):
         
         # 构建点云坐标并根据外参切换到世界坐标系
         points = torch.stack([x, y, z], dim=1)  # (N, 3)
-        points_homogeneous = torch.hstack((points, torch.ones((points.shape[0], 1))))  # (N, 4)
+        points_homogeneous = torch.hstack((points, torch.ones((points.shape[0], 1)).to(device)))  # (N, 4)
         world_points = (extrinsics @ points_homogeneous.T).T[:, :3]
         
         # 获取对应点的颜色
@@ -445,6 +427,7 @@ class MultiViewDataset(Dataset):
         
         # 创建PyTorch3D点云对象
         pointclouds = Pointclouds(points=[world_points], features=[colors])
+        # pointclouds = Pointclouds(points=[points], features=[colors])
         
         return pointclouds
     
@@ -516,21 +499,16 @@ class MultiViewDataset(Dataset):
         
         # 渲染点云
         images = renderer(pointclouds)
+        rgb = images[0].mul(255).add_(0.5).clamp_(0, 255).to(torch.uint8)
         
         # 获取深度信息（如果需要）
-        depth = None
         if return_depth:
             fragments = rasterizer(pointclouds)
-            depth = fragments.zbuf[0, ..., 0].cpu().numpy()
+            depth = fragments.zbuf[0, ..., 0].unsqueeze(2)
+            return rgb, depth
         
         # 准备返回结果
-        result = {
-            'image': images[0, ..., :3].cpu().numpy()  # RGB图像
-        }
-        if return_depth:
-            result['depth'] = depth
-        
-        return result
+        return rgb
 
     def __getitem__(self, index, cam_id=None, return_video=False):
         if self.mode != "train":
@@ -548,43 +526,89 @@ class MultiViewDataset(Dataset):
             actions *= self.c_act_scaler
 
             data = dict()
+            if self.load_state:
+                data["state"] = np.concatenate([arm_states, gripper_states[..., None]], axis=1)
+                
             if self.load_action:
                 data["action"] = actions.float()
+                
+            pointclouds_dict = {}
+            # data["video"] = dict()
+            # data["depth"] = dict()
+            # data["extrinsic_matrix"] = dict()
+            # data["intrinsic_matrix"] = dict()
 
             for cam_id in self.cam_ids:
-                data[cam_id] = dict()
                 video, cam_id = self._get_obs(label, frame_ids, cam_id, pre_encode=False)
-                video = video.permute(1, 0, 2, 3)  # Rearrange from [T, C, H, W] to [C, T, H, W]
-                data[cam_id]["video"] = video.to(dtype=torch.uint8)
+                video = video.permute(1, 0, 2, 3).cuda()  # Rearrange from [T, C, H, W] to [C, T, H, W]
                 
-                depth = self._get_depth(label, frame_ids, cam_id)
-                depth = depth.permute(3, 0, 1, 2)  # [1, T, H, W]
-                data[cam_id]["depth"] = depth.to(dtype=torch.float32)  # []
+                depth = self._get_depth(label, frame_ids, cam_id)  # [T, C, H, W]
+                depth = depth.permute(1, 0, 2, 3).cuda()  # [1, T, H, W]
                 
                 extrinsic_matrixs, intrinsic_matrixs = self._get_cam_parameters(label, cam_id, frame_ids)
-                data[cam_id]["extrinsic_matrix"] = extrinsic_matrixs
-                data[cam_id]["intrinsic_matrix"] = intrinsic_matrixs
+                extrinsic_matrixs = extrinsic_matrixs.cuda()
+                intrinsic_matrixs = intrinsic_matrixs.cuda()
                 
-                # Build 3D Scene from GT cams Render Images by Pred Cams
-                first_rgb = video[:, 0]
-                first_depth = depth[:, 0]
-                height = first_rgb.shape[1]
-                width = first_rgb.shape[2]
-                first_extrinsics = extrinsic_matrixs[0]
-                first_instrinsics = intrinsic_matrixs[0]
-                pointclouds = self._rgbd_to_pointcloud(first_rgb, first_depth, first_instrinsics, first_extrinsics)
-                data[cam_id]["pointcloud"] = pointclouds
-                save_pointcloud_to_ply(pointclouds, "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/output/aaa.ply")
+                # Build 3D Scene from GT cams
+                if cam_id in self.gt_cams:
+                    first_rgb = video[:, 0]  # [C, H, W]
+                    first_depth = depth[:, 0]  # [1, H, W]
+                    
+                    height = first_rgb.shape[1]
+                    width = first_rgb.shape[2]
+                    first_extrinsics = extrinsic_matrixs[0]  # [4, 4]
+                    first_intrinsics = intrinsic_matrixs[0]  # [3, 3]
+                    pointclouds = self._rgbd_to_pointcloud(first_rgb, first_depth, first_intrinsics, first_extrinsics).cuda()
+                    pointclouds_dict[cam_id] = pointclouds
+                    
+                if cam_id in self.pred_cams:
+                    data["video"] = video.to(dtype=torch.uint8)
+                    data["depth"] = depth.to(dtype=torch.float32)
+                    data["extrinsic_matrix"] = extrinsic_matrixs
+                    data["intrinsic_matrix"] = intrinsic_matrixs
                 
-                # Render Images by Pred Cams
-                render_image = self._render_pointcloud(pointclouds,
-                                        first_extrinsics,
-                                        first_instrinsics,
-                                        width,
-                                        height,
-                                        point_size=15,
-                                        background_color=(1, 1, 1))
-                
+            # Merge gt cams' pointclouds
+            gt_pointclouds = []
+            for gt_cam in self.gt_cams:
+                gt_pointclouds.append(pointclouds_dict[gt_cam])
+            merged_pointclouds = merge_pointclouds(gt_pointclouds).cuda()
+            
+            # Get pred cams' render images
+            # data["pred_video"] = dict()
+            for pred_cam in self.pred_cams:
+                pred_images = []
+                pred_depths = []
+                first_image = data["video"][:, 0]  # [C, H, W]
+                first_depth = data["depth"][:, 0]  # [1, H, W]
+                pred_images.append(first_image)
+                pred_depths.append(first_depth)
+
+                extrinsic_matrixs = data["extrinsic_matrix"]
+                intrinsic_matrixs = data["intrinsic_matrix"]
+                frame_num = len(frame_ids)
+                for t in range(1, frame_num):
+                    first_extrinsics = extrinsic_matrixs[t]
+                    first_intrinsics = intrinsic_matrixs[t]
+                    cam_pointclouds = pointclouds_world2cam(merged_pointclouds, first_extrinsics).cuda()
+                    render_image, render_depth = self._render_pointcloud(cam_pointclouds, 
+                                                            extrinsic_matrix=torch.tensor([[-1, 0, 0, 0],
+                                                                                            [0, -1, 0, 0],
+                                                                                            [0, 0, 1, 0],
+                                                                                            [0, 0, 0, 1]]),
+                                                            intrinsic_matrix=first_intrinsics,
+                                                            point_size=5,
+                                                            background_color=(1, 1, 1),
+                                                            return_depth=True)  # [H, W, C]
+                    render_image = render_image.permute(2, 0, 1)  # [C, H, W]
+                    render_depth = render_depth.permute(2, 0, 1)  # [C, H, W]
+                    pred_images.append(render_image)
+                    pred_depths.append(render_depth)
+                pred_video = torch.stack(pred_images, dim=0).transpose(0, 1)  # [C, T, H, W]
+                pred_depth = torch.stack(pred_depths, dim=0).transpose(0, 1)  # [C, T, H, W]
+                data["pred_video"] = pred_video
+                data["pred_depth"] = pred_depth
+                # tensor_to_video_opencv(pred_video, f"output/pred_{pred_cam}.mp4", is_normalized=False)
+            
             data["annotation_file"] = ann_file
 
             # NOTE: __key__ is used to uniquely identify the sample, required for callback functions
@@ -604,6 +628,9 @@ class MultiViewDataset(Dataset):
             data["image_size"] = 256 * torch.ones(4).cuda()  # TODO: Does this matter?
             data["num_frames"] = self.sequence_length
             data["padding_mask"] = torch.zeros(1, 256, 256).cuda()
+            data["num_conditional_frames"] = self.sequence_length
+            data["base_pos"] = np.array(label["base_pos"])
+            data["base_quat"] = np.array(label["base_quat"])
 
             return data
         except Exception:
@@ -630,10 +657,10 @@ if __name__ == "__main__":
         test_annotation_path=test_annotation_path,
         video_path=base_path,
         sequence_interval=1,
-        num_frames=13,
+        num_frames=9,
         cam_ids=['robot0_agentview_right', 'robot0_eye_in_hand', 'robot0_handview_right', 'robot0_handview_front'],
         gt_cams=['robot0_agentview_right', 'robot0_eye_in_hand'],
-        pred_cams=['robot0_eye_in_hand', 'robot0_handview_right', 'robot0_handview_front'],
+        pred_cams=['robot0_eye_in_hand'],
         accumulate_action=False,
         video_size=[256, 256],
         val_start_frame_interval=1,

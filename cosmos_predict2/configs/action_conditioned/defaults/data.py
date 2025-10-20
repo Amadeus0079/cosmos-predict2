@@ -23,7 +23,7 @@ from cosmos_predict2.data.action_conditioned.action_conditioned_dataset import A
 from cosmos_predict2.data.action_conditioned.multiview_dataset import MultiViewDataset
 from imaginaire.lazy_config import LazyCall as L
 
-base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_multiview/"
+base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_eff/"
 train_annotation_path = os.path.join(base_path, "annotation/train")
 val_annotation_path = os.path.join(base_path, "annotation/val")
 test_annotation_path = os.path.join(base_path, "annotation/test")
@@ -35,10 +35,10 @@ robocasa_train_dataset = L(MultiViewDataset)(
     test_annotation_path=test_annotation_path,
     video_path=base_path,
     sequence_interval=1,
-    num_frames=13,
+    num_frames=9,
     cam_ids=['robot0_agentview_right', 'robot0_eye_in_hand', 'robot0_handview_right', 'robot0_handview_front'],
-    gt_cams=['robot0_agentview_right', 'robot0_eye_in_hand'],
-    pred_cams=['robot0_eye_in_hand', 'robot0_handview_right', 'robot0_handview_front'],
+    gt_cams=['robot0_agentview_right', 'robot0_eye_in_hand',],
+    pred_cams=['robot0_eye_in_hand',],
     accumulate_action=False,
     video_size=[256, 256],
     val_start_frame_interval=1,
@@ -51,10 +51,10 @@ robocasa_val_dataset = L(MultiViewDataset)(
     test_annotation_path=test_annotation_path,
     video_path=base_path,
     sequence_interval=1,
-    num_frames=13,
+    num_frames=9,
     cam_ids=['robot0_agentview_right', 'robot0_eye_in_hand', 'robot0_handview_right', 'robot0_handview_front'],
-    gt_cams=['robot0_agentview_right', 'robot0_eye_in_hand'],
-    pred_cams=['robot0_eye_in_hand', 'robot0_handview_right', 'robot0_handview_front'],
+    gt_cams=['robot0_agentview_right', 'robot0_eye_in_hand',],
+    pred_cams=['robot0_eye_in_hand'],
     accumulate_action=False,
     video_size=[256, 256],
     val_start_frame_interval=1,

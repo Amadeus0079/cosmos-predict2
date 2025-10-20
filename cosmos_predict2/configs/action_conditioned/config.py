@@ -62,10 +62,111 @@ PREDICT2_VIDEO2WORLD_NET_2B_ACTION_CONDITIONED = L(ActionConditionedMinimalV1LVG
         mode="predict2_2b_720",
     ),
     # NOTE: add action dimension
-    action_dim=7 * 12,
+    action_dim=7 * 8,
 )
 
 PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED = Video2WorldPipelineConfig(
+    adjust_video_noise=True,
+    conditioner=L(ActionConditioner)(
+        fps=L(ReMapkey)(
+            dropout_rate=0.0,
+            dtype=None,
+            input_key="fps",
+            output_key="fps",
+        ),
+        padding_mask=L(ReMapkey)(
+            dropout_rate=0.0,
+            dtype=None,
+            input_key="padding_mask",
+            output_key="padding_mask",
+        ),
+        text=L(TextAttr)(
+            dropout_rate=0.2,
+            input_key=["t5_text_embeddings"],
+        ),
+        use_video_condition=L(BooleanFlag)(
+            dropout_rate=0.0,
+            input_key="fps",
+            output_key="use_video_condition",
+        ),
+        # NOTE: add additional action as condition
+        action=L(ReMapkey)(
+            input_key="action",
+            output_key="action",
+            dropout_rate=0.0,
+            dtype=None,
+        ),
+    ),
+    conditioning_strategy=str(ConditioningStrategy.FRAME_REPLACE),
+    # conditioning_strategy=str(ConditioningStrategy.CHANNEL_CONCAT),
+    min_num_conditional_frames=1,
+    max_num_conditional_frames=1,
+    net=PREDICT2_VIDEO2WORLD_NET_2B_ACTION_CONDITIONED,
+    precision="bfloat16",
+    rectified_flow_t_scaling_factor=1.0,
+    resize_online=True,
+    resolution="720",
+    ema=L(EMAConfig)(enabled=False),  # defaults to inference
+    sigma_conditional=0.0001,
+    sigma_data=1.0,
+    state_ch=16,
+    state_t=3,
+    text_encoder_class="T5",
+    tokenizer=L(TokenizerInterface)(
+        chunk_duration=81,
+        load_mean_std=False,
+        name="tokenizer",
+        vae_pth="checkpoints/nvidia/Cosmos-Predict2-2B-Video2World/tokenizer/tokenizer.pth",
+    ),
+    # disable prompt refiner and guardrail for action conditional
+    prompt_refiner_config=CosmosReason1Config(
+        checkpoint_dir="checkpoints/nvidia/Cosmos-Reason1-7B",
+        offload_model_to_cpu=True,
+        enabled=False,
+    ),
+    guardrail_config=CosmosGuardrailConfig(
+        checkpoint_dir="checkpoints/",
+        offload_model_to_cpu=True,
+        enabled=False,
+    ),
+)
+
+
+# Concat with 3D rendering
+PREDICT2_VIDEO2WORLD_NET_2B_ACTION_CONDITIONED_CONCAT = L(ActionConditionedMinimalV1LVGDiT)(
+    max_img_h=240,
+    max_img_w=240,
+    max_frames=128,
+    in_channels=32,
+    out_channels=16,
+    patch_spatial=2,
+    patch_temporal=1,
+    concat_padding_mask=True,
+    # attention settings
+    model_channels=2048,
+    num_blocks=28,
+    num_heads=16,
+    atten_backend="minimal_a2a",
+    # positional embedding settings
+    pos_emb_cls="rope3d",
+    pos_emb_learnable=True,
+    pos_emb_interpolation="crop",
+    use_adaln_lora=True,
+    adaln_lora_dim=256,
+    rope_h_extrapolation_ratio=3.0,
+    rope_w_extrapolation_ratio=3.0,
+    rope_t_extrapolation_ratio=1.0,
+    extra_per_block_abs_pos_emb=False,
+    rope_enable_fps_modulation=False,
+    sac_config=L(SACConfig)(
+        every_n_blocks=1,
+        mode="predict2_2b_720",
+    ),
+    # NOTE: add action dimension
+    action_dim=7 * 8,
+)
+
+PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED_CONCAT = Video2WorldPipelineConfig(
     adjust_video_noise=True,
     conditioner=L(ActionConditioner)(
         fps=L(ReMapkey)(
@@ -101,7 +202,7 @@ PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED = Video2WorldPipelineConfig(
     conditioning_strategy=str(ConditioningStrategy.CHANNEL_CONCAT),
     min_num_conditional_frames=1,
     max_num_conditional_frames=1,
-    net=PREDICT2_VIDEO2WORLD_NET_2B_ACTION_CONDITIONED,
+    net=PREDICT2_VIDEO2WORLD_NET_2B_ACTION_CONDITIONED_CONCAT,
     precision="bfloat16",
     rectified_flow_t_scaling_factor=1.0,
     resize_online=True,
@@ -110,14 +211,130 @@ PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED = Video2WorldPipelineConfig(
     sigma_conditional=0.0001,
     sigma_data=1.0,
     state_ch=16,
-    state_t=4,
+    state_t=3,
     text_encoder_class="T5",
     tokenizer=L(TokenizerInterface)(
         chunk_duration=81,
         load_mean_std=False,
         name="tokenizer",
-        vae_pth="checkpoints/nvidia/Cosmos-Predict2-2B-Video2World/tokenizer/tokenizer.pth",
+        vae_pth="/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/checkpoints/nvidia/Cosmos-Predict2-2B-Video2World/tokenizer/tokenizer.pth",
     ),
+    # disable prompt refiner and guardrail for action conditional
+    prompt_refiner_config=CosmosReason1Config(
+        checkpoint_dir="/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/checkpoints/nvidia/Cosmos-Reason1-7B",
+        offload_model_to_cpu=True,
+        enabled=False,
+    ),
+    guardrail_config=CosmosGuardrailConfig(
+        checkpoint_dir="/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/checkpoints/",
+        offload_model_to_cpu=True,
+        enabled=False,
+    ),
+)
+
+
+# Depth
+PREDICT2_VIDEO2WORLD_NET_2B_ACTION_CONDITIONED_DEPTH = L(ActionConditionedMinimalV1LVGDiT)(
+    max_img_h=240,
+    max_img_w=240,
+    max_frames=128,
+    in_channels=40,
+    out_channels=20,
+    patch_spatial=2,
+    patch_temporal=1,
+    concat_padding_mask=True,
+    # attention settings
+    model_channels=2048,
+    num_blocks=28,
+    num_heads=16,
+    atten_backend="minimal_a2a",
+    # positional embedding settings
+    pos_emb_cls="rope3d",
+    pos_emb_learnable=True,
+    pos_emb_interpolation="crop",
+    use_adaln_lora=True,
+    adaln_lora_dim=256,
+    rope_h_extrapolation_ratio=3.0,
+    rope_w_extrapolation_ratio=3.0,
+    rope_t_extrapolation_ratio=1.0,
+    extra_per_block_abs_pos_emb=False,
+    rope_enable_fps_modulation=False,
+    sac_config=L(SACConfig)(
+        every_n_blocks=1,
+        mode="predict2_2b_720",
+    ),
+    # NOTE: add action dimension
+    action_dim=7 * 8,
+)
+
+PREDICT2_VIDEO2WORLD_PIPELINE_2B_ACTION_CONDITIONED_DEPTH = Video2WorldPipelineConfig(
+    adjust_video_noise=True,
+    conditioner=L(ActionConditioner)(
+        fps=L(ReMapkey)(
+            dropout_rate=0.0,
+            dtype=None,
+            input_key="fps",
+            output_key="fps",
+        ),
+        padding_mask=L(ReMapkey)(
+            dropout_rate=0.0,
+            dtype=None,
+            input_key="padding_mask",
+            output_key="padding_mask",
+        ),
+        text=L(TextAttr)(
+            dropout_rate=0.2,
+            input_key=["t5_text_embeddings"],
+        ),
+        use_video_condition=L(BooleanFlag)(
+            dropout_rate=0.0,
+            input_key="fps",
+            output_key="use_video_condition",
+        ),
+        # NOTE: add additional action as condition
+        action=L(ReMapkey)(
+            input_key="action",
+            output_key="action",
+            dropout_rate=0.0,
+            dtype=None,
+        ),
+    ),
+    # conditioning_strategy=str(ConditioningStrategy.FRAME_REPLACE),
+    conditioning_strategy=str(ConditioningStrategy.CHANNEL_CONCAT),
+    min_num_conditional_frames=1,
+    max_num_conditional_frames=1,
+    net=PREDICT2_VIDEO2WORLD_NET_2B_ACTION_CONDITIONED_DEPTH,
+    precision="bfloat16",
+    rectified_flow_t_scaling_factor=1.0,
+    resize_online=True,
+    resolution="720",
+    ema=L(EMAConfig)(enabled=False),  # defaults to inference
+    sigma_conditional=0.0001,
+    sigma_data=1.0,
+    state_ch=20,
+    state_t=3,
+    text_encoder_class="T5",
+    tokenizer=L(TokenizerInterface)(
+        chunk_duration=81,
+        load_mean_std=False,
+        name="tokenizer",
+        #vae_pth="checkpoints/nvidia/Cosmos-Predict2-2B-Video2World/tokenizer/tokenizer.pth",
+        vae_pth="MultiMAE/mae_path/mae-b_dec512d8b_1600e_multivit-c477195b.pth"
+    ),
+    # tokenizer=L(TokenizerInterface)(
+    #     input_adapters={'rgbd':  partial(PatchedInputAdapter, num_channels=4, stride_level=1)},
+    #     output_adapters={'rgbd': partial(SpatialOutputAdapter, num_channels=4, stride_level=1)},
+    #     num_global_tokens= 1,
+    #     dim_tokens = 768,
+    #     depth = 12,
+    #     num_heads = 12,
+    #     mlp_ratio= 4.0,
+    #     qkv_bias = True,
+    #     drop_rate= 0.0,
+    #     attn_drop_rate = 0.0,
+    #     drop_path_rate= 0.0,
+    #     norm_layer = partial(nn.LayerNorm, eps=1e-6)
+    # )
     # disable prompt refiner and guardrail for action conditional
     prompt_refiner_config=CosmosReason1Config(
         checkpoint_dir="checkpoints/nvidia/Cosmos-Reason1-7B",
