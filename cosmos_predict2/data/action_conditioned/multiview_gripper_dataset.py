@@ -58,7 +58,7 @@ from cosmos_predict2.data.action_conditioned.dataset_utils import (
 )
 
 
-class MultiViewDataset(Dataset):
+class MultiViewGripperDataset(Dataset):
     def __init__(
         self,
         train_annotation_path,
@@ -151,9 +151,7 @@ class MultiViewDataset(Dataset):
         self.pred_cams = pred_cams
         self.accumulate_action = accumulate_action
 
-        self.action_dim = 7  # ee xyz (3) + ee rotvec (3) + gripper(1)
-        self.c_act_scaler = [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 1.0]
-        self.c_act_scaler = torch.tensor(self.c_act_scaler, dtype=float)
+        self.action_dim = 1  # gripper(1)
         self.ann_files = self._init_anns(self.data_path)
 
         print(f"{len(self.ann_files)} trajectories in total")
@@ -381,6 +379,19 @@ class MultiViewDataset(Dataset):
         arm_actions = actions[:, :7]
         return torch.from_numpy(arm_actions)
     
+    def _get_robot_grippers(self, label, frame_ids):
+        all_actions = np.array(label["action"])
+        actions = all_actions[frame_ids]
+        grippers = actions[:, 6]
+        assert grippers.shape[0] == self.sequence_length - 1
+        return torch.from_numpy(grippers)
+
+    def _get_all_robot_grippers(self, label, frame_ids):
+        all_actions = np.array(label["action"])
+        actions = all_actions[frame_ids]
+        grippers = actions[:, 6]
+        return torch.from_numpy(grippers)
+    
     def _get_cam_parameters(self, label, cam_id, frame_ids):
         all_extrinsic_matrixs = label["extrinsic_matrix"][cam_id]
         all_extrinsic_matrixs = torch.tensor(all_extrinsic_matrixs)
@@ -538,7 +549,8 @@ class MultiViewDataset(Dataset):
                 label = json.load(f)
             arm_states, gripper_states = self._get_robot_states(label, frame_ids)
             # actions = self._get_actions(arm_states, gripper_states, self.accumulate_action)
-            actions = self._get_robot_actions(label, frame_ids[:-1])
+            # actions = self._get_robot_actions(label, frame_ids[:-1])
+            actions = self._get_robot_grippers(label, frame_ids[:-1]).unsqueeze(1)
             # actions *= self.c_act_scaler
 
             data = dict()
@@ -594,11 +606,15 @@ class MultiViewDataset(Dataset):
             for pred_cam in self.pred_cams:
                 pred_images = []
                 pred_depths = []
+                first_image = data["video"][:, 0]  # [C, H, W]
+                first_depth = data["depth"][:, 0]  # [1, H, W]
+                pred_images.append(first_image)
+                pred_depths.append(first_depth)
 
                 extrinsic_matrixs = data["extrinsic_matrix"]
                 intrinsic_matrixs = data["intrinsic_matrix"]
                 frame_num = len(frame_ids)
-                for t in range(0, frame_num):
+                for t in range(1, frame_num):
                     first_extrinsics = extrinsic_matrixs[t]
                     first_intrinsics = intrinsic_matrixs[t]
                     
@@ -616,13 +632,6 @@ class MultiViewDataset(Dataset):
                     render_depth = render_depth.permute(2, 0, 1)  # [C, H, W]
                     pred_images.append(render_image)
                     pred_depths.append(render_depth)
-                
-                if 'pred_cam' in self.gt_cams:
-                    first_image = data["video"][:, 0]  # [C, H, W]
-                    first_depth = data["depth"][:, 0]  # [1, H, W]
-                    pred_images[0] = first_image
-                    pred_depths[0] = first_depth
-                
                 pred_video = torch.stack(pred_images, dim=0).transpose(0, 1)  # [C, T, H, W]
                 pred_depth = torch.stack(pred_depths, dim=0).transpose(0, 1)  # [C, T, H, W]
                 data["pred_video"] = pred_video
@@ -670,7 +679,7 @@ if __name__ == "__main__":
     val_annotation_path = os.path.join(base_path, "annotation/val")
     test_annotation_path = os.path.join(base_path, "annotation/test")
 
-    train_dataset = MultiViewDataset(
+    train_dataset = MultiViewGripperDataset(
         train_annotation_path=train_annotation_path,
         val_annotation_path=val_annotation_path,
         test_annotation_path=test_annotation_path,

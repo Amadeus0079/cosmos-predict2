@@ -787,46 +787,31 @@ class TokenizerInterface_MAE(VideoTokenizerInterface):
         pass
 
     # @torch.compile(dynamic=False); it will significantly slow down the training job
-    def encode(self, x: Union[Dict[str, torch.Tensor], torch.Tensor], return_all_layers=False, **kwargs) -> torch.Tensor:
-        # latents = self.model.encoder(state)
-        # num_frames = latents.shape[2]
-        # if num_frames == 1:
-        #     return (latents - self.model.img_mean.type_as(latents)) / self.model.img_std.type_as(latents)
-        # else:
-        #     return (latents - self.model.video_mean[:, :, :num_frames].type_as(latents)) / self.model.video_std[
-        #         :, :, :num_frames
-        #     ].type_as(latents)
-        x_single=x[:,:,0,:,:]
-        input_tokens, input_info = self.model.process_input(x_single)
-        # Pass tokens through Transformer
-        if not return_all_layers:
-            encoder_tokens = self.encode(input_tokens)
-        else:
-            # Optionally access every intermediate layer
-            encoder_tokens = []
-            tokens = input_tokens
-            for block in self.encode:
-                tokens = block(tokens)
-                encoder_tokens.append(tokens)
+    def encode(self, video: torch.Tensor, depth: torch.Tensor, **kwargs) -> torch.Tensor:
+        '''
+        inputs:
+            video: torch.Tensor [B, 3, T, H, W]
+            depth: torch.Tensor [B, 1, T, H, W]
+        '''
+        B, _, T, H, W = video.shape
+        input_dict = {}
+        video_reshaped = video.permute(0, 2, 1, 3, 4).reshape(-1, 3, H, W)  # [B*T, 3, H, W]
+        depth_reshaped = depth.permute(0, 2, 1, 3, 4).reshape(-1, 1, H, W)  # [B*T, 1, H, W]
+        input_dict['rgb'] = video_reshaped
+        input_dict['depth'] = depth_reshaped
 
-        if self.output_adapters is None:
-            return encoder_tokens
+        input_tokens, input_info = self.model.process_input(input_dict)
         
-    def decode(self, encoder_tokens: torch.Tensor, x: Union[Dict[str, torch.Tensor], torch.Tensor]) -> torch.Tensor:
-        # num_frames = latent.shape[2]
-        # if num_frames == 1:
-        #     return self.model.decode(
-        #         (latent * self.model.img_std.type_as(latent)) + self.model.img_mean.type_as(latent)
-        #     )
-        # else:
-        #     return self.model.decode(
-        #         (latent * self.model.video_std[:, :, :num_frames].type_as(latent))
-        #         + self.model.video_mean[:, :, :num_frames].type_as(latent)
-        #     )
-        x_single=x[:,:,0,:,:]
-        input_tokens, input_info = self.model.process_input(x_single)
+        # Pass tokens through Transformer
+        encoder_tokens = self.model.encoder(input_tokens)
+        print("Encoder Tokens Shape:", encoder_tokens.shape)
+        print("Encoder Tokens:", encoder_tokens)
+        print("Input Info:", input_info)
+        return encoder_tokens, input_info
+        
+    def decode(self, encoder_tokens: torch.Tensor, input_info) -> torch.Tensor:
         preds = {
-            domain: self.output_adapters[domain](
+            domain: self.model.output_adapters[domain](
                 encoder_tokens=encoder_tokens,
                 input_info=input_info,
             )

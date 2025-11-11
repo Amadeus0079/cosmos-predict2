@@ -373,6 +373,65 @@ def pointclouds_world2cam(pointclouds, extrinsics):
     return Pointclouds(points=[cam_points], features=[feats])
 
 
+def pointclouds_world2cam_batch(pointclouds, extrinsics):
+    '''
+    pointclouds: Pointclouds
+    extrinsics: torch.Tensor [B, 4, 4]
+    '''
+    points = pointclouds.points_list()
+    feats = pointclouds.features_list()
+    device = points.device
+    points_homogeneous = torch.stack((points, torch.ones((points.shape[0], points.shape[1], 1)).to(device)), dim=2)  # (B, N, 4)
+    cam_points = (torch.inverse(extrinsics) @ points_homogeneous.transpose(0, 2, 1)).transpose(0, 1, 2)[..., :3]
+    return Pointclouds(points=[cam_points], features=[feats])
+
+
+def campose_to_pytorch3d_mat(camera_pose):
+    """
+    将相机位姿转换为 PyTorch3D 格式的 4x4 外参矩阵
+    输入: camera_pose - [4,4](torch.Tensor),相机→世界变换
+    输出: pytorch3d_mat - [4,4](torch.Tensor),世界→相机变换（适配 PyTorch3D 坐标系）
+    """
+    # 1. 定义轴方向修正矩阵（Open3D 相机系 → PyTorch3D 相机系）
+    # X轴翻转,Y轴翻转
+    correction = torch.Tensor([
+        [-1, 0, 0, 0],
+        [0, -1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ]).cuda()
+
+    world_to_cam_open3d = torch.inverse(camera_pose)
+
+    pytorch3d_mat = correction @ world_to_cam_open3d  # 矩阵乘法
+    pytorch3d_mat[:3, :3] = pytorch3d_mat[:3, :3].T
+
+    return pytorch3d_mat
+
+
+def campose_to_pytorch3d_mat_batch(camera_pose):
+    """
+    将相机位姿转换为 PyTorch3D 格式的 4x4 外参矩阵
+    输入: camera_pose - [B,4,4](torch.Tensor),相机→世界变换
+    输出: pytorch3d_mat - [B,4,4](torch.Tensor),世界→相机变换（适配 PyTorch3D 坐标系）
+    """
+    # 1. 定义轴方向修正矩阵（Open3D 相机系 → PyTorch3D 相机系）
+    # X轴翻转,Y轴翻转
+    correction = torch.Tensor([
+        [-1, 0, 0, 0],
+        [0, -1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ]).cuda()
+
+    world_to_cam_open3d = torch.inverse(camera_pose)
+
+    pytorch3d_mat = correction @ world_to_cam_open3d  # 矩阵乘法
+    pytorch3d_mat[:, :3, :3] = pytorch3d_mat[:, :3, :3].transpose(1, 2)
+
+    return pytorch3d_mat
+
+
 def tensor_to_video_opencv(
     tensor: torch.Tensor,
     output_path: str = "output.mp4",

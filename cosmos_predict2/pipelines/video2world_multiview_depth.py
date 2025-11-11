@@ -48,73 +48,10 @@ _IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", "webp"]
 _VIDEO_EXTENSIONS = [".mp4"]
 NUM_CONDITIONAL_FRAMES_KEY: str = "num_conditional_frames"
 
-class DepthNet(nn.Module):
-    def __init__(self):
-        super(DepthNet, self).__init__()
-        
-        # 第一部分：处理第一帧，输出形状为(32,4,1,32,32)
-        self.first_frame_conv = nn.Sequential(
-            # 输入: (32,1,1,256,256) -> 输出: (32,4,1,128,128)
-            nn.Conv3d(1, 4, kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1)),
-            nn.ReLU(inplace=True),
-            # 输出: (32,4,1,64,64)
-            nn.Conv3d(4, 4, kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1)),
-            nn.ReLU(inplace=True),
-            # 输出: (32,4,1,32,32)
-            nn.Conv3d(4, 4, kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1)),
-        )
-        
-        # 第二部分：处理中间4帧，输出形状为(32,4,1,32,32)
-        self.middle_frames_conv = nn.Sequential(
-            # 输入: (32,1,4,256,256) -> 输出: (32,4,4,128,128)
-            nn.Conv3d(1, 4, kernel_size=(3, 3, 3), stride=(1, 2, 2), padding=(1, 1, 1)),
-            nn.ReLU(inplace=True),
-            # 输出: (32,4,4,64,64)
-            nn.Conv3d(4, 4, kernel_size=(3, 3, 3), stride=(1, 2, 2), padding=(1, 1, 1)),
-            nn.ReLU(inplace=True),
-            # 时间维度聚合，输出: (32,4,1,64,64)
-            nn.Conv3d(4, 4, kernel_size=(4, 1, 1), stride=(4, 1, 1)),
-            # 输出: (32,4,1,32,32)
-            nn.Conv3d(4, 4, kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1)),
-        )
-        
-        # 第三部分：处理最后4帧，输出形状为(32,4,1,32,32)
-        self.last_frames_conv = nn.Sequential(
-            # 输入: (32,1,4,256,256) -> 输出: (32,4,4,128,128)
-            nn.Conv3d(1, 4, kernel_size=(3, 3, 3), stride=(1, 2, 2), padding=(1, 1, 1)),
-            nn.ReLU(inplace=True),
-            # 输出: (32,4,4,64,64)
-            nn.Conv3d(4, 4, kernel_size=(3, 3, 3), stride=(1, 2, 2), padding=(1, 1, 1)),
-            nn.ReLU(inplace=True),
-            # 时间维度聚合，输出: (32,4,1,64,64)
-            nn.Conv3d(4, 4, kernel_size=(4, 1, 1), stride=(4, 1, 1)),
-            # 输出: (32,4,1,32,32)
-            nn.Conv3d(4, 4, kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1)),
-        )
-    
-    def forward(self, x):
-        # 输入形状: (32,1,9,256,256)
-        assert x.shape[2] == 9
-        
-        # 分割时间步：第一帧，中间4帧，最后4帧
-        first_frame = x[:, :, 0:1, :, :]  # (32,1,1,256,256)
-        middle_frames = x[:, :, 1:5, :, :]  # (32,1,4,256,256)
-        last_frames = x[:, :, 5:9, :, :]  # (32,1,4,256,256)
-        
-        # 分别处理三部分
-        first_out = self.first_frame_conv(first_frame)  # (32,4,1,32,32)
-        middle_out = self.middle_frames_conv(middle_frames)  # (32,4,1,32,32)
-        last_out = self.last_frames_conv(last_frames)  # (32,4,1,32,32)
-        
-        # 在时间维度拼接，得到(32,4,3,32,32)
-        output = torch.cat([first_out, middle_out, last_out], dim=2)
-        
-        return output
 
 class Video2WorldMultiviewDepthPipeline(Video2WorldActionConditionedPipeline):
     def __init__(self, device: str = "cuda", torch_dtype: torch.dtype = torch.bfloat16):
         super().__init__(device=device, torch_dtype=torch_dtype)
-        self.depth_net = DepthNet().to(device=device, dtype=torch_dtype)
         
     @staticmethod
     def from_config(
@@ -247,8 +184,35 @@ class Video2WorldMultiviewDepthPipeline(Video2WorldActionConditionedPipeline):
 
         return pipe
     
-    
-    
+    @torch.no_grad()
+    def encode(self, video: torch.Tensor, depth: torch.Tensor):
+        encoder_tokens,input_info=self.tokenizer.encode(video, depth)
+        return encoder_tokens * self.sigma_data
+    def _reshape_tokens_to_video(self, tokens, B, T, H, W):
+        BT, num_tokens, feature_dim = tokens.shape
+        tokens_B_T_N_D = tokens.reshape(B, T, num_tokens, feature_dim)
+        # 需要知道patch大小来计算H_patch和W_patch
+        patch_size = 16  # 根据你的配置调整
+        H_patch = H
+        W_patch = W
+        
+        # 分离rgb和depth tokens
+        rgb_tokens = tokens_B_T_N_D[:, :, :64, :]    # [B, T, 64, feature_dim]
+        depth_tokens = tokens_B_T_N_D[:, :, 64:128, :] # [B, T, 64, feature_dim]
+        global_token = tokens_B_T_N_D[:, :, 128:, :]   # [B, T, 1, feature_dim]
+        
+        # 将rgb tokens reshape为 [B, feature_dim, T, H_patch, W_patch]
+        rgb_tokens_B_T_H_W_D = rgb_tokens.reshape(B, T, H_patch, W_patch, feature_dim)
+        rgb_video = rgb_tokens_B_T_H_W_D.permute(0, 4, 1, 2, 3)  # [B, feature_dim, T, H_patch, W_patch]
+        
+        # 将depth tokens reshape为 [B, feature_dim, T, H_patch, W_patch]  
+        depth_tokens_B_T_H_W_D = depth_tokens.reshape(B, T, H_patch, W_patch, feature_dim)
+        depth_video = depth_tokens_B_T_H_W_D.permute(0, 4, 1, 2, 3)  # [B, feature_dim, T, H_patch, W_patch]
+        
+        # 合并rgb和depth (在通道维度)
+        combined_video = torch.cat([rgb_video, depth_video], dim=1)  # [B, 2*feature_dim, T, H_patch, W_patch]
+        
+        return combined_video
     def get_data_and_condition(
         self, data_batch: dict[str, torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor, TextCondition]:
@@ -266,36 +230,31 @@ class Video2WorldMultiviewDepthPipeline(Video2WorldActionConditionedPipeline):
         is_image_batch = self.is_image_batch(data_batch)
 
         # Latent state
-        raw_video = data_batch["video"]
-        latent_video = self.encode(raw_video).contiguous().float()
-        raw_depth = data_batch["depth"]
-        latent_depth = self.depth_net(raw_depth).contiguous().float()
+        raw_video = data_batch["video"]  # [B, 3, T, H, W]
+        raw_depth = data_batch["depth"]  # [B, 1, T, H, W]
+        latent_state = self.encode(raw_video, raw_depth).contiguous().float()  # [B*T, N, D]
         
-        print(f"Latent Depth Shape: {latent_depth.shape}")
-        print(f"Latent Depth Device: {latent_depth.device}")
-        
-        raw_state = torch.cat([data_batch["video"], data_batch["depth"]], dim=1)
-        latent_state = torch.cat([latent_video, latent_depth], dim=1)
+        raw_state = torch.cat([data_batch["video"], data_batch["depth"]], dim=1)  # [B, 4, T, H, W]
 
-        B, C, T, H, W = raw_video.size()
+        # B, C, T, H, W = raw_video.size()
         
         # Condition Latent State
         condition_raw_video = data_batch["pred_video"]
-        condition_latent_video = self.encode(condition_raw_video).contiguous().float()
-        condition_raw_depth = data_batch["pred_depth"]
-        condition_latent_depth = self.depth_net(condition_raw_depth).contiguous().float()
-        
+        condition_raw_depth=data_batch["pred_depth"]
+        condition_latent_state = self.encode(condition_raw_video, condition_raw_depth).contiguous().float()
         condition_raw_state = torch.cat([data_batch["pred_video"], data_batch["pred_depth"]], dim=1)
-        condition_latent_state = torch.cat([condition_latent_video, condition_latent_depth], dim=1)
-
+        #condition_latent_state = torch.cat([condition_latent_video, condition_latent_depth], dim=1)
+        B, C, T, H, W = raw_video.size()
         # Condition
         condition = self.conditioner(data_batch)
         condition = condition.edit_data_type(DataType.IMAGE if is_image_batch else DataType.VIDEO)
         
         num_conditional_frames = self.tokenizer.get_latent_num_frames(T)
-
+        
+        reshape_condition_latent_state=self._reshape_tokens_to_video(condition_latent_state, B=8, T=9, H=8, W=8)
+        
         condition = condition.set_video_condition(
-            gt_frames=condition_latent_state.to(**self.tensor_kwargs),
+            gt_frames=reshape_condition_latent_state.to(**self.tensor_kwargs),
             random_min_num_conditional_frames=self.config.min_num_conditional_frames,
              random_max_num_conditional_frames=self.config.max_num_conditional_frames,
             num_conditional_frames=num_conditional_frames,

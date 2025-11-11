@@ -332,7 +332,7 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
                 net_state_in_B_C_T_H_W
             )
             gt_video_mask = torch.zeros_like(condition_video_mask)
-            gt_video_mask[:, :, 0, :, :] = 1
+            # gt_video_mask[:, :, 0, :, :] = 1
 
             if self.config.conditioning_strategy == str(ConditioningStrategy.FRAME_REPLACE):
                 # In case of frame replacement strategy, replace the first few frames of the video with the conditional frames
@@ -583,7 +583,7 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
     def process(
         self,
         video: torch.Tensor,
-        actions: np.ndarray,
+        actions: torch.Tensor,
         pred_video: torch.Tensor,
         prompt: str = "",
         negative_prompt: str = "",
@@ -603,7 +603,7 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
         # transform first frame and actions to tensor
         vid_input = video
         pred_input = pred_video
-        actions_tensor = torch.from_numpy(actions).to(dtype=torch.bfloat16)
+        actions_tensor = actions
 
         # Prepare the data batch with text embeddings
         data_batch = self._get_data_batch_input(
@@ -692,5 +692,13 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
         # Merge context-parallel chunks back together if needed.
         if self.dit.is_context_parallel_enabled:
             samples = cat_outputs_cp(samples, seq_dim=2, cp_group=self.get_context_parallel_group())
+            
+        # Decode
+        video = self.decode(samples)  # shape: (B, C, T, H, W), possibly out of [-1, 1]
+        
+        import torchvision
+        right_video = video.permute(0, 2, 3, 4, 1)
+        for b in range(n_sample):
+            torchvision.io.write_video(f"/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/output/robo{b}.mp4", ((right_video[b] + 1) / 2 * 255).to(torch.uint8), fps=1)
 
         return samples

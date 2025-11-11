@@ -21,9 +21,10 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from cosmos_predict2.data.action_conditioned.action_conditioned_dataset import ActionConditionedDataset
 from cosmos_predict2.data.action_conditioned.multiview_dataset import MultiViewDataset
+from cosmos_predict2.data.action_conditioned.multiview_gripper_dataset import MultiViewGripperDataset
 from imaginaire.lazy_config import LazyCall as L
 
-base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_eff/"
+base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_128/"
 train_annotation_path = os.path.join(base_path, "annotation/train")
 val_annotation_path = os.path.join(base_path, "annotation/val")
 test_annotation_path = os.path.join(base_path, "annotation/test")
@@ -36,11 +37,11 @@ robocasa_train_dataset = L(MultiViewDataset)(
     video_path=base_path,
     sequence_interval=1,
     num_frames=9,
-    cam_ids=['robot0_agentview_right', 'robot0_eye_in_hand', 'robot0_handview_right', 'robot0_handview_front'],
-    gt_cams=['robot0_agentview_right', 'robot0_eye_in_hand',],
-    pred_cams=['robot0_eye_in_hand',],
+    cam_ids=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand'],
+    gt_cams=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
+    pred_cams=['robot0_eye_in_hand'],
     accumulate_action=False,
-    video_size=[256, 256],
+    video_size=[128, 128],
     val_start_frame_interval=1,
     mode="train",
 )
@@ -52,15 +53,142 @@ robocasa_val_dataset = L(MultiViewDataset)(
     video_path=base_path,
     sequence_interval=1,
     num_frames=9,
-    cam_ids=['robot0_agentview_right', 'robot0_eye_in_hand', 'robot0_handview_right', 'robot0_handview_front'],
-    gt_cams=['robot0_agentview_right', 'robot0_eye_in_hand',],
+    cam_ids=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand'],
+    gt_cams=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
     pred_cams=['robot0_eye_in_hand'],
     accumulate_action=False,
-    video_size=[256, 256],
+    video_size=[128, 128],
     val_start_frame_interval=1,
     mode="val",
 )
 
+robocasa_long16_train_dataset = L(MultiViewDataset)(
+    train_annotation_path=train_annotation_path,
+    val_annotation_path=val_annotation_path,
+    test_annotation_path=test_annotation_path,
+    video_path=base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
+    gt_cams=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
+    pred_cams=['robot0_eye_in_hand',],
+    accumulate_action=False,
+    video_size=[128, 128],
+    val_start_frame_interval=1,
+    mode="train",
+)
+
+robocasa_long16_val_dataset = L(MultiViewDataset)(
+    train_annotation_path=train_annotation_path,
+    val_annotation_path=val_annotation_path,
+    test_annotation_path=test_annotation_path,
+    video_path=base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand'],
+    gt_cams=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
+    pred_cams=['robot0_eye_in_hand'],
+    accumulate_action=False,
+    video_size=[128, 128],
+    val_start_frame_interval=1,
+    mode="val",
+)
+
+robocasa_gripper_train_dataset = L(MultiViewGripperDataset)(
+    train_annotation_path=train_annotation_path,
+    val_annotation_path=val_annotation_path,
+    test_annotation_path=test_annotation_path,
+    video_path=base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
+    gt_cams=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
+    pred_cams=['robot0_eye_in_hand',],
+    accumulate_action=False,
+    video_size=[128, 128],
+    val_start_frame_interval=1,
+    mode="train",
+)
+
+robocasa_gripper_val_dataset = L(MultiViewGripperDataset)(
+    train_annotation_path=train_annotation_path,
+    val_annotation_path=val_annotation_path,
+    test_annotation_path=test_annotation_path,
+    video_path=base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand'],
+    gt_cams=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
+    pred_cams=['robot0_eye_in_hand'],
+    accumulate_action=False,
+    video_size=[128, 128],
+    val_start_frame_interval=1,
+    mode="val",
+)
+
+robocasa_handview_train_dataset = L(MultiViewDataset)(
+    train_annotation_path=train_annotation_path,
+    val_annotation_path=val_annotation_path,
+    test_annotation_path=test_annotation_path,
+    video_path=base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand', 'robot0_handview_right'],
+    gt_cams=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
+    pred_cams=['robot0_handview_right',],
+    accumulate_action=False,
+    video_size=[128, 128],
+    val_start_frame_interval=1,
+    mode="train",
+)
+
+robocasa_handview_val_dataset = L(MultiViewDataset)(
+    train_annotation_path=train_annotation_path,
+    val_annotation_path=val_annotation_path,
+    test_annotation_path=test_annotation_path,
+    video_path=base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand', 'robot0_handview_right'],
+    gt_cams=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
+    pred_cams=['robot0_handview_right',],
+    accumulate_action=False,
+    video_size=[128, 128],
+    val_start_frame_interval=1,
+    mode="val",
+)
+
+robocasa_frontview_train_dataset = L(MultiViewDataset)(
+    train_annotation_path=train_annotation_path,
+    val_annotation_path=val_annotation_path,
+    test_annotation_path=test_annotation_path,
+    video_path=base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand', 'robot0_handview_front'],
+    gt_cams=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
+    pred_cams=['robot0_handview_front',],
+    accumulate_action=False,
+    video_size=[128, 128],
+    val_start_frame_interval=1,
+    mode="train",
+)
+
+robocasa_frontview_val_dataset = L(MultiViewDataset)(
+    train_annotation_path=train_annotation_path,
+    val_annotation_path=val_annotation_path,
+    test_annotation_path=test_annotation_path,
+    video_path=base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand', 'robot0_handview_front'],
+    gt_cams=['robot0_agentview_left', 'robot0_agentview_right', 'robot0_eye_in_hand',],
+    pred_cams=['robot0_handview_front',],
+    accumulate_action=False,
+    video_size=[128, 128],
+    val_start_frame_interval=1,
+    mode="val",
+)
 
 def get_sampler(dataset):
     return DistributedSampler(
@@ -86,6 +214,62 @@ robocasa_val_dataloader = L(DataLoader)(
     drop_last=True,
 )
 
+robocasa_long16_train_dataloader = L(DataLoader)(
+    dataset=robocasa_long16_train_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_long16_train_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+robocasa_long16_val_dataloader = L(DataLoader)(
+    dataset=robocasa_long16_val_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_long16_val_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+robocasa_gripper_train_dataloader = L(DataLoader)(
+    dataset=robocasa_gripper_train_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_gripper_train_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+robocasa_gripper_val_dataloader = L(DataLoader)(
+    dataset=robocasa_gripper_val_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_gripper_val_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+robocasa_handview_train_dataloader = L(DataLoader)(
+    dataset=robocasa_handview_train_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_handview_train_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+robocasa_handview_val_dataloader = L(DataLoader)(
+    dataset=robocasa_handview_val_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_handview_val_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+robocasa_frontview_train_dataloader = L(DataLoader)(
+    dataset=robocasa_frontview_train_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_frontview_train_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+robocasa_frontview_val_dataloader = L(DataLoader)(
+    dataset=robocasa_frontview_val_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_frontview_val_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
 
 def register_training_and_val_data_action_conditioned():
     cs = ConfigStore.instance()
@@ -102,4 +286,52 @@ def register_training_and_val_data_action_conditioned():
         package="dataloader_val",
         name="robocasa_val",
         node=robocasa_val_dataloader,
+    )
+    cs.store(
+        group="dataloader_train",
+        package="dataloader_train",
+        name="robocasa_gripper_train",
+        node=robocasa_gripper_train_dataloader,
+    )
+    cs.store(
+        group="dataloader_val",
+        package="dataloader_val",
+        name="robocasa_gripper_val",
+        node=robocasa_gripper_val_dataloader,
+    )
+    cs.store(
+        group="dataloader_train",
+        package="dataloader_train",
+        name="robocasa_long16_train",
+        node=robocasa_long16_train_dataloader,
+    )
+    cs.store(
+        group="dataloader_val",
+        package="dataloader_val",
+        name="robocasa_long16_val",
+        node=robocasa_long16_val_dataloader,
+    )
+    cs.store(
+        group="dataloader_train",
+        package="dataloader_train",
+        name="robocasa_handview_train",
+        node=robocasa_handview_train_dataloader,
+    )
+    cs.store(
+        group="dataloader_val",
+        package="dataloader_val",
+        name="robocasa_handview_val",
+        node=robocasa_handview_val_dataloader,
+    )
+    cs.store(
+        group="dataloader_train",
+        package="dataloader_train",
+        name="robocasa_frontview_train",
+        node=robocasa_frontview_train_dataloader,
+    )
+    cs.store(
+        group="dataloader_val",
+        package="dataloader_val",
+        name="robocasa_frontview_val",
+        node=robocasa_frontview_val_dataloader,
     )

@@ -48,11 +48,10 @@ def split_episodes(episodes, train_ratio, test_ratio, val_ratio):
     
     return shuffled[:train_count], shuffled[train_count:train_count+test_count], shuffled[train_count+test_count:]
 
-def process_episode(ep_name, data_group, supple_group, episode_to_id, set_videos_dir, set_annotations_dir, split, cam_names):
+def process_episode(ep_name, data_group, episode_to_id, set_videos_dir, set_annotations_dir, split, cam_names):
     """处理单个轨迹的函数，供多线程调用"""
     
     episode = data_group[ep_name]
-    sp_episode = supple_group[ep_name]
     
     ep_meta = json.loads(episode.attrs["ep_meta"])       # get meta data for episode
     lang = ep_meta["lang"]     
@@ -66,7 +65,10 @@ def process_episode(ep_name, data_group, supple_group, episode_to_id, set_videos
     episode_id_str = str(episode_id)
 
     traj_len = len(episode['actions'][:])
-    index = list(range(0, traj_len, INTERVAL))
+    
+    # 定义要取的序列
+    index = list(range(1, traj_len, INTERVAL))
+    prev_index = list(range(0, traj_len - 1, INTERVAL))
     
     # 提取动作和状态数据
     original_actions = episode['actions'][:][index][:-1]
@@ -74,7 +76,7 @@ def process_episode(ep_name, data_group, supple_group, episode_to_id, set_videos
     #     return f"警告: 轨迹 {ep_name} 缺少 'actions_abs' 组，已跳过。"
     
     ### Change
-    abs_actions = episode['actions_abs'][:][index]
+    abs_actions = episode['actions_abs'][:][prev_index]
     original_pos = episode['obs/robot0_base_to_eef_pos'][:][index]
     original_quat = episode['obs/robot0_base_to_eef_quat'][:][index]
     original_ori = np.stack([quat2axisangle(original_quat[i]) for i in range(len(original_quat))], axis=0)
@@ -102,8 +104,8 @@ def process_episode(ep_name, data_group, supple_group, episode_to_id, set_videos
         "action": original_actions.tolist(),
         "state": original_states.tolist(),
         "continuous_gripper_state": continuous_gripper_state_list,
-        "extrinsic_matrix": {cam_name: sp_episode['cam_info'][cam_name]['extrinsic_matrix'][:].tolist() for cam_name in cam_names},
-        "intrinsic_matrix": {cam_name: sp_episode['cam_info'][cam_name]['intrinsic_matrix'][:].tolist() for cam_name in cam_names},
+        "extrinsic_matrix": {cam_name: episode['cam_info'][cam_name]['extrinsic_matrix'][:].tolist() for cam_name in cam_names},
+        "intrinsic_matrix": {cam_name: episode['cam_info'][cam_name]['intrinsic_matrix'][:].tolist() for cam_name in cam_names},
         "base_pos": base_pos.tolist(),
         "base_quat": base_quat.tolist(),
     }
@@ -112,8 +114,8 @@ def process_episode(ep_name, data_group, supple_group, episode_to_id, set_videos
         json.dump(action_data, json_file, indent=4)
     
     for cam_name in cam_names:
-        video_frames = sp_episode['obs'][cam_name + '_image'][:]
-        depth_frames = sp_episode['obs'][cam_name + '_depth'][:]
+        video_frames = episode['obs'][cam_name + '_image'][:]
+        depth_frames = episode['obs'][cam_name + '_depth'][:]
         num_frames, height, width, _ = video_frames.shape
         # height = 256  # debug
         # width = 256
@@ -123,12 +125,11 @@ def process_episode(ep_name, data_group, supple_group, episode_to_id, set_videos
         video_path_abs = os.path.join(episode_video_dir, f"{cam_name}.mp4")
         
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        output_fps = 6.0
+        output_fps = 20.0
         out = cv2.VideoWriter(video_path_abs, fourcc, output_fps, (width, height))
         
         for frame in video_frames:
             bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            bgr_frame = cv2.resize(bgr_frame, (256, 256))
             out.write(bgr_frame)
         out.release()
         
@@ -137,7 +138,7 @@ def process_episode(ep_name, data_group, supple_group, episode_to_id, set_videos
     
     return
 
-def convert_robocasa_to_cosmos_format_format(hdf5_path, supple_path, output_dir, domain_name, 
+def convert_robocasa_to_cosmos_format_format(hdf5_path, output_dir, domain_name, 
            train_ratio=0.7, test_ratio=0.2, val_ratio=0.1,
            random_seed=42, max_workers=None, cam_names=None):
     """主函数：读取HDF5文件并转换为目标格式，支持多线程加速"""
@@ -167,14 +168,12 @@ def convert_robocasa_to_cosmos_format_format(hdf5_path, supple_path, output_dir,
 
     try:
         f = h5py.File(hdf5_path, 'r')
-        sp_f = h5py.File(supple_path, 'r')
         if 'data' not in f:
             print("错误: HDF5文件中找不到 'data' 组。")
             return
 
         data_group = f['data']
-        supple_group = sp_f['data']
-        episodes = sorted([key for key in supple_group.keys() if key.startswith('demo_')])
+        episodes = sorted([key for key in data_group.keys() if key.startswith('demo_')])
         episodes = episodes[:300]  # debug
         print(f"在文件中找到 {len(episodes)} 条轨迹。")
         
@@ -206,7 +205,6 @@ def convert_robocasa_to_cosmos_format_format(hdf5_path, supple_path, output_dir,
                         process_episode,
                         ep_name,
                         data_group,
-                        supple_group,
                         episode_to_id,
                         set_videos_dir,
                         set_annotations_dir,
@@ -232,10 +230,7 @@ def convert_robocasa_to_cosmos_format_format(hdf5_path, supple_path, output_dir,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="将RoboCasa HDF5数据集转换为Cosmos-Predict2训练格式，支持多线程加速")
     parser.add_argument("--hdf5-path", type=str, 
-                  default="/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/robocasa/datasets/v0.1/single_stage/kitchen_pnp/PnPCounterToSink/mg/2024-05-04-22-14-06_and_2024-05-07-07-40-17/demo_gentex_im128_randcams.hdf5", 
-                  help="输入的RoboCasa HDF5文件路径。")
-    parser.add_argument("--supple-path", type=str, 
-                  default="/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/robocasa/datasets/v0.1/single_stage/kitchen_pnp/PnPCounterToSink/mg/2024-05-04-22-14-06_and_2024-05-07-07-40-17/demo_gentex_im128_randcams_multi.hdf5", 
+                  default="/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/robocasa/datasets/v0.1/single_stage/kitchen_pnp/PnPCounterToSink/mg/2024-05-04-22-14-06_and_2024-05-07-07-40-17/demo_im128_depth_intvl1.hdf5", 
                   help="输入的RoboCasa HDF5文件路径。")
     parser.add_argument("--output-dir", type=str, 
                   default="/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets", 
@@ -250,13 +245,13 @@ if __name__ == '__main__':
                   help="验证集所占比例 (默认: 0.1)")
     parser.add_argument("--random-seed", type=int, default=42, 
                   help="随机种子，确保划分结果可复现 (默认: 42)")
-    parser.add_argument("--max-workers", type=int, default=8,
+    parser.add_argument("--max-workers", type=int, default=10,
                   help="最大线程数，默认自动根据CPU核心数确定")
     parser.add_argument("--cam-names",
                         type=str,
                         nargs="+",
                         default=[
-                            # "robot0_agentview_left",
+                            "robot0_agentview_left",
                             "robot0_agentview_right",
                             "robot0_eye_in_hand",
                             # "robot0_handview_left",
@@ -272,7 +267,6 @@ if __name__ == '__main__':
 
     convert_robocasa_to_cosmos_format_format(
         args.hdf5_path, 
-        args.supple_path,
         args.output_dir, 
         args.domain_name,
         args.train_ratio,

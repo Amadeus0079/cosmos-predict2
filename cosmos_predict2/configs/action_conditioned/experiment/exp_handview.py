@@ -20,12 +20,12 @@ cs = ConfigStore.instance()
 """
 torchrun --nproc_per_node=2 --master_port=12341 -m scripts.train --config=cosmos_predict2/configs/base/config.py -- experiment="predict2_video2world_2b_action_conditioned_training"
 """
-predict2_video2world_2b_multiview_training_concat = dict(
+predict2_video2world_2b_multiview_training_handview = dict(
     defaults=[
-        {"override /model": "predict2_v2w_2b_multiview_fsdp_concat"},
+        {"override /model": "predict2_v2w_2b_multiview_fsdp_long16"},
         {"override /optimizer": "fusedadamw"},
         {"override /ckpt_type": "standard"},
-        {"override /dataloader_train": "robocasa_train"},
+        {"override /dataloader_train": "robocasa_handview_train"},
         "_self_",
     ],
     model=dict(
@@ -33,25 +33,25 @@ predict2_video2world_2b_multiview_training_concat = dict(
             fsdp_shard_size=-1,
         )
     ),
-    job=dict(group="debug", name="concat_${now:%Y-%m-%d}_${now:%H-%M-%S}"),
+    job=dict(group="debug", name="handview_${now:%Y-%m-%d}_${now:%H-%M-%S}"),
     model_parallel=dict(
         context_parallel_size=1,
     ),
     dataloader_train=dict(
-        batch_size=8,
+        batch_size=64,
     ),
     trainer=dict(
         distributed_parallelism="fsdp",
     ),
     checkpoint=dict(
-        save_iter=500,
+        save_iter=200,
     ),
 )
 
 
 for _item in [
     # predict2_video2world_2b
-    predict2_video2world_2b_multiview_training_concat,
+    predict2_video2world_2b_multiview_training_handview,
 ]:
     # Get the experiment name from the global variable, e.g. exp01_wan_lora -> experiment_name = "exp01_wan_lora"
     experiment_name = [name.lower() for name, value in globals().items() if value is _item][0]
