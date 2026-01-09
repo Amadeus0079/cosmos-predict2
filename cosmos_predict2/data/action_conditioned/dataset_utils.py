@@ -364,6 +364,28 @@ def merge_pointclouds(pcl_list):
     return Pointclouds(points=[merged_points], features=[merged_feats])
 
 
+def merge_pointclouds_batch(pcl_list):
+    # pcl_list 是 Pointclouds 对象的列表
+    all_points = []
+    all_feats = []
+    B = len(pcl_list[0].points_list())
+    
+    for b in range(B):
+        b_points = []
+        b_feats = []
+        for pcl in pcl_list:
+            pts = pcl.points_list()[b]
+            feats = pcl.features_list()[b]
+            b_points.append(pts)
+            b_feats.append(feats)
+
+        merged_points = torch.cat(b_points, dim=0)
+        merged_feats = torch.cat(b_feats, dim=0)
+        all_points.append(merged_points)
+        all_feats.append(merged_feats)
+    return Pointclouds(points=all_points, features=all_feats)
+
+
 def pointclouds_world2cam(pointclouds, extrinsics):
     points = pointclouds.points_list()[0]
     feats = pointclouds.features_list()[0]
@@ -427,7 +449,7 @@ def campose_to_pytorch3d_mat_batch(camera_pose):
     world_to_cam_open3d = torch.inverse(camera_pose)
 
     pytorch3d_mat = correction @ world_to_cam_open3d  # 矩阵乘法
-    pytorch3d_mat[:, :3, :3] = pytorch3d_mat[:, :3, :3].transpose(1, 2)
+    pytorch3d_mat[:, :3, :3] = pytorch3d_mat[:, :3, :3].transpose(1, 2).clone()
 
     return pytorch3d_mat
 

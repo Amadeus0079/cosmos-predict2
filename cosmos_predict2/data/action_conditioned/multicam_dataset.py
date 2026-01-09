@@ -58,7 +58,7 @@ from cosmos_predict2.data.action_conditioned.dataset_utils import (
 )
 
 
-class MultiViewDataset(Dataset):
+class MultiCamDataset(Dataset):
     def __init__(
         self,
         train_annotation_path,
@@ -549,11 +549,12 @@ class MultiViewDataset(Dataset):
                 data["action"] = actions.float()
                 
             pointclouds_dict = {}
-            # data["video"] = dict()
-            # data["depth"] = dict()
-            # data["extrinsic_matrix"] = dict()
-            # data["intrinsic_matrix"] = dict()
-
+            data["video"] = dict()
+            data["depth"] = dict()
+            data["extrinsic_matrix"] = dict()
+            data["intrinsic_matrix"] = dict()
+            data["pred_video"] = dict()
+            data["pred_depth"] = dict()
             for cam_id in self.cam_ids:
                 video, cam_id = self._get_obs(label, frame_ids, cam_id, pre_encode=False)
                 video = video.permute(1, 0, 2, 3).cuda()  # Rearrange from [T, C, H, W] to [C, T, H, W]
@@ -578,10 +579,10 @@ class MultiViewDataset(Dataset):
                     pointclouds_dict[cam_id] = pointclouds
                     
                 if cam_id in self.pred_cams:
-                    data["video"] = video.to(dtype=torch.uint8)
-                    data["depth"] = depth.to(dtype=torch.float32)
-                    data["extrinsic_matrix"] = extrinsic_matrixs
-                    data["intrinsic_matrix"] = intrinsic_matrixs
+                    data["video"][cam_id] = video.to(dtype=torch.uint8)
+                    data["depth"][cam_id] = depth.to(dtype=torch.float32)
+                    data["extrinsic_matrix"][cam_id] = extrinsic_matrixs
+                    data["intrinsic_matrix"][cam_id] = intrinsic_matrixs
                 
             # Merge gt cams' pointclouds
             gt_pointclouds = []
@@ -595,8 +596,8 @@ class MultiViewDataset(Dataset):
                 pred_images = []
                 pred_depths = []
 
-                extrinsic_matrixs = data["extrinsic_matrix"]
-                intrinsic_matrixs = data["intrinsic_matrix"]
+                extrinsic_matrixs = data["extrinsic_matrix"][pred_cam]
+                intrinsic_matrixs = data["intrinsic_matrix"][pred_cam]
                 frame_num = len(frame_ids)
                 for t in range(0, frame_num):
                     first_extrinsics = extrinsic_matrixs[t]
@@ -618,15 +619,15 @@ class MultiViewDataset(Dataset):
                     pred_depths.append(render_depth)
                 
                 if pred_cam in self.gt_cams:
-                    first_image = data["video"][:, 0]  # [C, H, W]
-                    first_depth = data["depth"][:, 0]  # [1, H, W]
+                    first_image = data["video"][pred_cam][:, 0]  # [C, H, W]
+                    first_depth = data["depth"][pred_cam][:, 0]  # [1, H, W]
                     pred_images[0] = first_image
                     pred_depths[0] = first_depth
                 
                 pred_video = torch.stack(pred_images, dim=0).transpose(0, 1)  # [C, T, H, W]
                 pred_depth = torch.stack(pred_depths, dim=0).transpose(0, 1)  # [C, T, H, W]
-                data["pred_video"] = pred_video
-                data["pred_depth"] = pred_depth
+                data["pred_video"][pred_cam] = pred_video
+                data["pred_depth"][pred_cam] = pred_depth
             
             data["annotation_file"] = ann_file
 
@@ -670,7 +671,7 @@ if __name__ == "__main__":
     val_annotation_path = os.path.join(base_path, "annotation/val")
     test_annotation_path = os.path.join(base_path, "annotation/test")
 
-    train_dataset = MultiViewDataset(
+    train_dataset = MultiCamDataset(
         train_annotation_path=train_annotation_path,
         val_annotation_path=val_annotation_path,
         test_annotation_path=test_annotation_path,
@@ -687,3 +688,4 @@ if __name__ == "__main__":
     )
     
     data = train_dataset[10000]
+    print(data)

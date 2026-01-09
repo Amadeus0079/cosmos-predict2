@@ -48,7 +48,7 @@ _VIDEO_EXTENSIONS = [".mp4"]
 NUM_CONDITIONAL_FRAMES_KEY: str = "num_conditional_frames"
 
 
-class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
+class Video2WorldBestviewPipeline(Video2WorldActionConditionedPipeline):
     def __init__(self, device: str = "cuda", torch_dtype: torch.dtype = torch.bfloat16):
         super().__init__(device=device, torch_dtype=torch_dtype)
         
@@ -63,7 +63,7 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
         is_train: bool = True,
     ) -> Any:
         # Create a pipe
-        pipe = Video2WorldMultiviewPipeline(device=device, torch_dtype=torch_dtype)
+        pipe = Video2WorldBestviewPipeline(device=device, torch_dtype=torch_dtype)
         pipe.config = config
         pipe.precision = {
             "float32": torch.float32,
@@ -187,29 +187,40 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
         self, data_batch: dict[str, torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor, TextCondition]:
         self._normalize_video_databatch_inplace(data_batch)
-        if not torch.is_floating_point(data_batch["pred_video"]):
+        if not torch.is_floating_point(data_batch["pred_video"]): # TODO: or not torch.is_floating_point(data_batch["video_1"]) or not torch.is_floating_point(data_batch["video_2"]):
             data_batch[IS_PREPROCESSED_KEY] = False
             self._normalize_video_databatch_inplace(data_batch, input_key="pred_video")
         self._augment_image_dim_inplace(data_batch)
         is_image_batch = self.is_image_batch(data_batch)
 
         # Latent state
-        raw_state = data_batch["video"]  # gt video
+        raw_state = data_batch["video"] # gt video
         latent_state = self.encode(raw_state).contiguous().float()
         B, C, T, H, W = raw_state.size()
         
         # Condition Latent State
         condition_raw_state = data_batch["pred_video"]
         condition_latent_state = self.encode(condition_raw_state).contiguous().float()
+        
+        # Video from fixed cam 1
+        condition_raw_video_1 = data_batch["pred_video"] # TODO: Change to "video_1" after finishing data collection
+        condition_latent_state_video_1 = self.encode(condition_raw_video_1).contiguous().float()
+        
+        # Video from vixed cam 2
+        condition_raw_video_2 = data_batch["pred_video"] # TODO: Change to "video_2" after finishing data collection
+        condition_latent_state_video_2 = self.encode(condition_raw_video_2).contiguous().float()
+        
+        bestview_condition = torch.cat([condition_latent_state, condition_latent_state_video_1, condition_latent_state_video_2], dim=-1)
 
         # Condition
         condition = self.conditioner(data_batch)
         condition = condition.edit_data_type(DataType.IMAGE if is_image_batch else DataType.VIDEO)
         
         num_conditional_frames = self.tokenizer.get_latent_num_frames(T)
+        
 
         condition = condition.set_video_condition(
-            gt_frames=condition_latent_state.to(**self.tensor_kwargs),
+            gt_frames=bestview_condition.to(**self.tensor_kwargs),
             random_min_num_conditional_frames=self.config.min_num_conditional_frames,
             random_max_num_conditional_frames=self.config.max_num_conditional_frames,
             num_conditional_frames=num_conditional_frames,

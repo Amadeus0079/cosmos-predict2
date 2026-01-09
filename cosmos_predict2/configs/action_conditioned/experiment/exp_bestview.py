@@ -18,14 +18,14 @@ from hydra.core.config_store import ConfigStore
 cs = ConfigStore.instance()
 
 """
-torchrun --nproc_per_node=2 --master_port=12341 -m scripts.train --config=cosmos_predict2/configs/base/config.py -- experiment="predict2_video2world_2b_action_conditioned_training"
+torchrun --nproc_per_node=2 --master_port=12341 -m scripts.train --config=cosmos_predict2/configs/base/config.py -- experiment="predict2_video2world_2b_multiview_training_bestview"
 """
-predict2_video2world_2b_multiview_training_handview = dict(
+predict2_video2world_2b_multiview_training_bestview = dict(
     defaults=[
-        {"override /model": "predict2_v2w_2b_multiview_fsdp_long16"},
+        {"override /model": "predict2_v2w_2b_multiview_fsdp_bestview"},
         {"override /optimizer": "fusedadamw"},
         {"override /ckpt_type": "standard"},
-        {"override /dataloader_train": "robocasa_handview_train"},
+        {"override /dataloader_train": "robocasa_bestview_train"}, # TODO: After having done data collection, modify here and in cosmos_predict2/configs/action_conditioned/defaults/data.py
         "_self_",
     ],
     model=dict(
@@ -33,25 +33,25 @@ predict2_video2world_2b_multiview_training_handview = dict(
             fsdp_shard_size=-1,
         )
     ),
-    job=dict(group="debug", name="handview_${now:%Y-%m-%d}_${now:%H-%M-%S}"),
+    job=dict(group="debug", name="bestview_${now:%Y-%m-%d}_${now:%H-%M-%S}"),
     model_parallel=dict(
         context_parallel_size=1,
     ),
     dataloader_train=dict(
-        batch_size=16,
+        batch_size=8,
     ),
     trainer=dict(
         distributed_parallelism="fsdp",
     ),
     checkpoint=dict(
-        save_iter=200,
+        save_iter=500,
     ),
 )
 
 
 for _item in [
     # predict2_video2world_2b
-    predict2_video2world_2b_multiview_training_handview,
+    predict2_video2world_2b_multiview_training_bestview,
 ]:
     # Get the experiment name from the global variable, e.g. exp01_wan_lora -> experiment_name = "exp01_wan_lora"
     experiment_name = [name.lower() for name, value in globals().items() if value is _item][0]

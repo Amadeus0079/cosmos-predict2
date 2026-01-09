@@ -33,13 +33,10 @@ from cosmos_predict2.configs.action_conditioned.config import (
     PREDICT2_VIDEO2WORLD_PIPELINE_2B_MULTIVIEW_CONCAT,
     PREDICT2_VIDEO2WORLD_PIPELINE_2B_MULTIVIEW_GRIPPER
 )
-from cosmos_predict2.data.action_conditioned.multiview_dataset import MultiViewDataset
+from cosmos_predict2.data.action_conditioned.novelview_dataset import NovelViewDataset
 from cosmos_predict2.configs.action_conditioned.defaults.data import (
-    robocasa_val_dataset, 
-    robocasa_long16_val_dataset, 
-    robocasa_handview_val_dataset,
-    robocasa_gripper_val_dataset,
-    robocasa_anyview_val_dataset,
+    robocasa_novelview_val_dataset,
+    robocasa_cheatview_val_dataset
 )
 from cosmos_predict2.pipelines.video2world_multiview import Video2WorldMultiviewPipeline
 from imaginaire.utils import distributed, log, misc
@@ -61,7 +58,7 @@ def get_action_sequence(annotation_path):
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Video-to-World Generation with Cosmos Predict2")
+    parser = argparse.ArgumentParser(description="Video-to-World Generation with Cosmos Predict2 (Novel View)")
     parser.add_argument(
         "--model_type",
         choices=["concat", "replace", "long16", "gripper"],
@@ -111,7 +108,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--save_path",
         type=str,
-        default="output/generated_video.mp4",
+        default="output/novelview/generated_video.mp4",
         help="Path to save the generated video (include file extension)",
     )
     parser.add_argument(
@@ -119,6 +116,18 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=1,
         help="Number of GPUs to use for context parallel inference (should be a divisor of the total frames)",
+    )
+    parser.add_argument(
+        "--sample_interval",
+        type=int,
+        default=200,
+        help="Interval between samples to process",
+    )
+    parser.add_argument(
+        "--max_samples",
+        type=int,
+        default=2000,
+        help="Maximum number of samples to process",
     )
     parser.add_argument("--disable_guardrail", action="store_true", help="Disable guardrail checks on prompts")
     parser.add_argument(
@@ -128,8 +137,6 @@ def parse_args() -> argparse.Namespace:
 
 
 def setup_pipeline(args: argparse.Namespace):
-    # log.info(f"Using model size: {args.model_size}")
-    # if args.model_size == "2B":
     if args.model_type == "concat":
         config = PREDICT2_VIDEO2WORLD_PIPELINE_2B_MULTIVIEW_CONCAT
     elif args.model_type == "replace":
@@ -139,12 +146,10 @@ def setup_pipeline(args: argparse.Namespace):
     elif args.model_type == 'gripper':
         config = PREDICT2_VIDEO2WORLD_PIPELINE_2B_MULTIVIEW_GRIPPER
     dit_path = "checkpoints/nvidia/Cosmos-Predict2-2B-Sample-Action-Conditioned/model-480p-4fps.pt"
-    # else:
-    #     raise ValueError("Invalid model size. Choose either '2B' or '14B'.")
+
     if hasattr(args, "dit_path") and args.dit_path:
         dit_path = args.dit_path
 
-    # text_encoder_path = "checkpoints/google-t5/t5-11b"
     text_encoder_path = ""
 
     misc.set_random_seed(seed=args.seed, by_rank=True)
@@ -173,7 +178,6 @@ def setup_pipeline(args: argparse.Namespace):
         config.prompt_refiner_config.enabled = False
 
     # Load models
-    # log.info(f"Initializing Video2WorldPipeline with model size: {args.model_size}")
     pipe = Video2WorldMultiviewPipeline.from_config(
         config=config,
         dit_path=dit_path,
@@ -197,21 +201,21 @@ def process_single_generation(
 ):
     actions = input_actions.cpu().detach().numpy()
     frame_num = input_video.shape[1]
-    # input_video[:, 1:, :, :] = 0
-    # print(f"input_video: {input_video.shape}")
-    # print(f"action: {actions[:chunk_size].shape}")
-    # print(f"input_condition: {input_condition.shape}")
+    print(f"input_video: {input_video.shape}")
+    print(f"ori actions: {actions.shape}")
+    print(f"actions: {actions[:chunk_size].shape}")
+    print(f"input_condition: {input_condition.shape}")
 
     video = pipe(
         input_video,
-        actions[:chunk_size],
+        actions[:chunk_size]*0,
         input_condition,
         num_conditional_frames=frame_num,
         guidance=guidance,
         seed=seed,
         num_sampling_step=num_sampling_step,
     )
-    
+
     # Visualize the original Image
     normalized_input_video = (input_video.unsqueeze(0).to(video.device) / 255.0) * 2 - 1
     normalized_input_condition = (input_condition.unsqueeze(0).to(video.device) / 255.0) * 2 - 1
@@ -229,23 +233,48 @@ def process_single_generation(
     return False
 
 
-def generate_video(args: argparse.Namespace, pipe: Video2WorldMultiviewPipeline, val_dataset) -> None:
-    for i in range(0, 10000, 200):
-        batch_data = val_dataset[i]
-        dit_ckpt = os.path.basename(args.dit_path)
-        dit_name = os.path.splitext(dit_ckpt)[0]
-        process_single_generation(
-            pipe=pipe,
-            input_video=batch_data['video'],
-            input_actions=batch_data['action'],
-            input_condition=batch_data['pred_video'],
-            output_path=f"output/multiview/{args.model_type}_{dit_name}_sample{args.num_sampling_step}_{val_dataset.pred_cams[0]}_{i}.mp4",
-            guidance=args.guidance,
-            seed=args.seed,
-            chunk_size=args.chunk_size,
-            autoregressive=args.autoregressive,
-            num_sampling_step=args.num_sampling_step,
-        )
+def generate_video(args: argparse.Namespace, pipe: Video2WorldMultiviewPipeline, val_dataset: NovelViewDataset) -> None:
+    """Generate videos for novel view synthesis validation.
+
+    NovelViewDataset generates 4x samples (one per randomview), so we iterate through
+    all samples and use the randomview_name to organize outputs.
+    """
+    dit_ckpt = os.path.basename(args.dit_path)
+    dit_name = os.path.splitext(dit_ckpt)[0]
+
+    # Calculate total samples considering randomview multiplier
+    total_samples = len(val_dataset)
+    num_randomviews = val_dataset.num_randomviews
+
+    log.info(f"Total samples in dataset: {total_samples}")
+    log.info(f"Number of randomviews per sequence: {num_randomviews}")
+    log.info(f"Processing samples with interval: {args.sample_interval}")
+
+    for j in range(0, min(args.max_samples, total_samples), args.sample_interval):
+        for i in range(j, j + 4):
+            batch_data = val_dataset[i]
+
+            # Get randomview information from the data
+            randomview_id = batch_data['randomview_id']
+            randomview_name = batch_data['randomview_name']
+
+            # Construct output path with randomview info
+            output_path = f"output/cheatview/{args.model_type}_{dit_name}_sample{args.num_sampling_step}_{randomview_name}_idx{i}_rv{randomview_id}.mp4"
+
+            log.info(f"Processing sample {i}/{total_samples}, randomview: {randomview_name} (id: {randomview_id})")
+
+            process_single_generation(
+                pipe=pipe,
+                input_video=batch_data['video'],
+                input_actions=batch_data['action'],
+                input_condition=batch_data['pred_video'],
+                output_path=output_path,
+                guidance=args.guidance,
+                seed=args.seed,
+                chunk_size=args.chunk_size,
+                autoregressive=args.autoregressive,
+                num_sampling_step=args.num_sampling_step,
+            )
     return
 
 
@@ -259,12 +288,13 @@ def cleanup_distributed():
 
 if __name__ == "__main__":
     args = parse_args()
-    # val_dataset = instantiate(robocasa_val_dataset)
-    # val_dataset = instantiate(robocasa_long16_val_dataset)
-    # val_dataset = instantiate(robocasa_handview_val_dataset)
-    # val_dataset = instantiate(robocasa_gripper_val_dataset)
-    val_dataset = instantiate(robocasa_anyview_val_dataset)
-    
+    # val_dataset = instantiate(robocasa_novelview_val_dataset)
+    val_dataset = instantiate(robocasa_cheatview_val_dataset)
+
+    log.info(f"Loaded CheatViewDataset with {len(val_dataset)} samples")
+    log.info(f"Base sequences: {len(val_dataset.samples)}")
+    log.info(f"Randomviews per sequence: {val_dataset.num_randomviews}")
+
     try:
         pipe = setup_pipeline(args)
         generate_video(args, pipe, val_dataset)

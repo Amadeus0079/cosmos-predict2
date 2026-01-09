@@ -40,6 +40,7 @@ from cosmos_predict2.configs.action_conditioned.defaults.data import (
     robocasa_handview_val_dataset,
     robocasa_gripper_val_dataset,
     robocasa_anyview_val_dataset,
+    robocasa_novelview_val_dataset,
 )
 from cosmos_predict2.pipelines.video2world_multiview import Video2WorldMultiviewPipeline
 from imaginaire.utils import distributed, log, misc
@@ -198,9 +199,11 @@ def process_single_generation(
     actions = input_actions.cpu().detach().numpy()
     frame_num = input_video.shape[1]
     # input_video[:, 1:, :, :] = 0
-    # print(f"input_video: {input_video.shape}")
-    # print(f"action: {actions[:chunk_size].shape}")
-    # print(f"input_condition: {input_condition.shape}")
+    print(f"input_video: {input_video.shape}")
+    print(f"ori actions: {actions.shape}")
+    print(f"actions: {actions[:chunk_size].shape}")
+    print(f"input_condition: {input_condition.shape}")
+    # print("Frame Number: ", frame_num)
 
     video = pipe(
         input_video,
@@ -230,7 +233,7 @@ def process_single_generation(
 
 
 def generate_video(args: argparse.Namespace, pipe: Video2WorldMultiviewPipeline, val_dataset) -> None:
-    for i in range(0, 10000, 200):
+    for i in range(0, 4000, 200):
         batch_data = val_dataset[i]
         dit_ckpt = os.path.basename(args.dit_path)
         dit_name = os.path.splitext(dit_ckpt)[0]
@@ -239,7 +242,7 @@ def generate_video(args: argparse.Namespace, pipe: Video2WorldMultiviewPipeline,
             input_video=batch_data['video'],
             input_actions=batch_data['action'],
             input_condition=batch_data['pred_video'],
-            output_path=f"output/multiview/{args.model_type}_{dit_name}_sample{args.num_sampling_step}_{val_dataset.pred_cams[0]}_{i}.mp4",
+            output_path=f"output/novelview/{args.model_type}_{dit_name}_sample{args.num_sampling_step}_{val_dataset.pred_cams[0]}_{i}.mp4",
             guidance=args.guidance,
             seed=args.seed,
             chunk_size=args.chunk_size,
@@ -263,7 +266,8 @@ if __name__ == "__main__":
     # val_dataset = instantiate(robocasa_long16_val_dataset)
     # val_dataset = instantiate(robocasa_handview_val_dataset)
     # val_dataset = instantiate(robocasa_gripper_val_dataset)
-    val_dataset = instantiate(robocasa_anyview_val_dataset)
+    # val_dataset = instantiate(robocasa_anyview_val_dataset)
+    val_dataset = instantiate(robocasa_novelview_val_dataset)
     
     try:
         pipe = setup_pipeline(args)

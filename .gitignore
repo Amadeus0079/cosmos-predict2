@@ -197,3 +197,7 @@ cython_debug/
 checkpoints/
 output/
 datasets/
+keys/zzckey.txt
+keys/zzcket.txt.pub
+.sii
+MultiMAE

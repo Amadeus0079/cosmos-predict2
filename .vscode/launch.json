@@ -26,6 +26,23 @@
             "request": "launch",
             "module": "torch.distributed.run",
             "console": "integratedTerminal",
+            "env":{"CUDA_VISIBLE_DEVICES":"5"},
+            "args": [
+                "--nproc_per_node=1",
+                "--master_port=12341",
+                "-m",
+                "scripts.train",
+                "--config=cosmos_predict2/configs/base/config.py",
+                "--",
+                "experiment='predict2_video2world_2b_multiview_training_concat'",
+            ]
+        },
+        {
+            "name": "train_depth",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "torch.distributed.run",
+            "console": "integratedTerminal",
             "env":{"CUDA_VISIBLE_DEVICES":"2"},
             "args": [
                 "--nproc_per_node=1",
@@ -34,7 +51,7 @@
                 "scripts.train",
                 "--config=cosmos_predict2/configs/base/config.py",
                 "--",
-                "experiment='predict2_video2world_2b_action_conditioned_training'",
+                "experiment='predict2_video2world_2b_action_conditioned_training_depth'",
             ]
         },
         {
@@ -42,6 +59,15 @@
             "type": "debugpy",
             "request": "launch",
             "module": "cosmos_predict2.data.action_conditioned.multiview_dataset",
+            "console": "integratedTerminal",
+            "args": [
+            ]
+        },
+        {
+            "name": "anyview_dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "cosmos_predict2.data.action_conditioned.anyview_dataset",
             "console": "integratedTerminal",
             "args": [
             ]

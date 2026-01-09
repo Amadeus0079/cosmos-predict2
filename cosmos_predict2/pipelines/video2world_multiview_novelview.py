@@ -187,21 +187,28 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
         self, data_batch: dict[str, torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor, TextCondition]:
         self._normalize_video_databatch_inplace(data_batch)
-        if not torch.is_floating_point(data_batch["pred_video"]):
+        if not torch.is_floating_point(data_batch["left_view_video"]) and torch.is_floating_point(data_batch["right_view_video"]) torch.is_floating_point(data_batch["pred_video"]):
             data_batch[IS_PREPROCESSED_KEY] = False
+            self._normalize_video_databatch_inplace(data_batch, input_key="left_view_video")
+            self._normalize_video_databatch_inplace(data_batch, input_key="right_view_video")
             self._normalize_video_databatch_inplace(data_batch, input_key="pred_video")
         self._augment_image_dim_inplace(data_batch)
         is_image_batch = self.is_image_batch(data_batch)
 
         # Latent state
-        raw_state = data_batch["video"]  # gt video
+        raw_state = data_batch["video"]
         latent_state = self.encode(raw_state).contiguous().float()
         B, C, T, H, W = raw_state.size()
         
         # Condition Latent State
         condition_raw_state = data_batch["pred_video"]
+        view1_raw_state=data_batch["left_view_video"]
+        view2_raw_state=data_batch["right_view_video"]
         condition_latent_state = self.encode(condition_raw_state).contiguous().float()
-
+        view1_latent_state=self.encode(view1_raw_state).contiguous().float()
+        view2_latent_state=self.encode(view2_raw_state).contiguous().float()
+        concat_multiview_state=torch.cat([view1_latent_state,view2_latent_state], dim=1)
+        concat_condition_latent_state=torch.cat([concat_multiview_state,condition_latent_state],dim=1)
         # Condition
         condition = self.conditioner(data_batch)
         condition = condition.edit_data_type(DataType.IMAGE if is_image_batch else DataType.VIDEO)
@@ -209,7 +216,7 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
         num_conditional_frames = self.tokenizer.get_latent_num_frames(T)
 
         condition = condition.set_video_condition(
-            gt_frames=condition_latent_state.to(**self.tensor_kwargs),
+            gt_frames=concat_condition_latent_state.to(**self.tensor_kwargs),
             random_min_num_conditional_frames=self.config.min_num_conditional_frames,
             random_max_num_conditional_frames=self.config.max_num_conditional_frames,
             num_conditional_frames=num_conditional_frames,
@@ -379,7 +386,7 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
             ) * gt_video_mask + x0_pred_B_C_T_H_W * (1 - gt_video_mask)
 
         # get noise prediction
-        eps_pred_B_C_T_H_W = (xt_B_C_T_H_W - x0_pred_B_C_T_H_W) / sigma_B_1_T_1_1
+        e ps_pred_B_C_T_H_W = (xt_B_C_T_H_W - x0_pred_B_C_T_H_W) / sigma_B_1_T_1_1
 
         return DenoisePrediction(x0_pred_B_C_T_H_W, eps_pred_B_C_T_H_W, None)
     

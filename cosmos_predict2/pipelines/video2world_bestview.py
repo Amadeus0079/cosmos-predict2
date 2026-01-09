@@ -187,29 +187,40 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
         self, data_batch: dict[str, torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor, TextCondition]:
         self._normalize_video_databatch_inplace(data_batch)
-        if not torch.is_floating_point(data_batch["pred_video"]):
+        if not torch.is_floating_point(data_batch["pred_video"]) or not torch.is_floating_point(data_batch["video_1"]) or not torch.is_floating_point(data_batch["video_2"]):
             data_batch[IS_PREPROCESSED_KEY] = False
             self._normalize_video_databatch_inplace(data_batch, input_key="pred_video")
         self._augment_image_dim_inplace(data_batch)
         is_image_batch = self.is_image_batch(data_batch)
 
         # Latent state
-        raw_state = data_batch["video"]  # gt video
+        raw_state = data_batch["video"] # gt video
         latent_state = self.encode(raw_state).contiguous().float()
         B, C, T, H, W = raw_state.size()
         
         # Condition Latent State
         condition_raw_state = data_batch["pred_video"]
         condition_latent_state = self.encode(condition_raw_state).contiguous().float()
+        
+        # Video from fixed cam 1
+        condition_raw_video_1 = data_batch["video_1"] # TODO: Change to "video_1" after finishing data collection
+        condition_latent_state_video_1 = self.encode(condition_raw_video_1).contiguous().float()
+        
+        # Video from vixed cam 2
+        condition_raw_video_2 = data_batch["video_2"] # TODO: Change to "video_2" after finishing data collection
+        condition_latent_state_video_2 = self.encode(condition_raw_video_2).contiguous().float()
+        
+        bestview_condition = torch.cat([condition_latent_state, condition_latent_state_video_1, condition_latent_state_video_2], dim=1)
 
         # Condition
         condition = self.conditioner(data_batch)
         condition = condition.edit_data_type(DataType.IMAGE if is_image_batch else DataType.VIDEO)
         
         num_conditional_frames = self.tokenizer.get_latent_num_frames(T)
+        
 
         condition = condition.set_video_condition(
-            gt_frames=condition_latent_state.to(**self.tensor_kwargs),
+            gt_frames=bestview_condition.to(**self.tensor_kwargs),
             random_min_num_conditional_frames=self.config.min_num_conditional_frames,
             random_max_num_conditional_frames=self.config.max_num_conditional_frames,
             num_conditional_frames=num_conditional_frames,
@@ -328,10 +339,13 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
                 condition_state_in_B_C_T_H_W = condition_state_in_B_C_T_H_W * 0
 
             _, C, _, _, _ = xt_B_C_T_H_W.shape
-            condition_video_mask = condition.condition_video_input_mask_B_C_T_H_W.repeat(1, C, 1, 1, 1).type_as(
+            tmp_mask = condition.condition_video_input_mask_B_C_T_H_W.repeat(1, C, 1, 1, 1).type_as(
                 net_state_in_B_C_T_H_W
             )
-            gt_video_mask = torch.zeros_like(condition_video_mask)
+            gt_video_mask = torch.zeros_like(tmp_mask)
+            condition_video_mask = condition.condition_video_input_mask_B_C_T_H_W.repeat(1, C * 3, 1, 1, 1).type_as(
+                net_state_in_B_C_T_H_W
+            )
             # gt_video_mask[:, :, 0, :, :] = 1
 
             if self.config.conditioning_strategy == str(ConditioningStrategy.FRAME_REPLACE):
@@ -374,7 +388,8 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
         x0_pred_B_C_T_H_W = c_skip_B_1_T_1_1 * xt_B_C_T_H_W + c_out_B_1_T_1_1 * net_output_B_C_T_H_W
         if condition.is_video:
             # Set the first few frames to the ground truth frames. This will ensure that the loss is not computed for the first few frames.
-            x0_pred_B_C_T_H_W = condition.gt_frames.type_as(
+              
+            x0_pred_B_C_T_H_W = condition.gt_frames[:, :16, :, :, :].type_as(
                 x0_pred_B_C_T_H_W
             ) * gt_video_mask + x0_pred_B_C_T_H_W * (1 - gt_video_mask)
 

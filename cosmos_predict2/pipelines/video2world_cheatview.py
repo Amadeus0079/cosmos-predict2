@@ -48,7 +48,7 @@ _VIDEO_EXTENSIONS = [".mp4"]
 NUM_CONDITIONAL_FRAMES_KEY: str = "num_conditional_frames"
 
 
-class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
+class Video2WorldCheatviewPipeline(Video2WorldActionConditionedPipeline):
     def __init__(self, device: str = "cuda", torch_dtype: torch.dtype = torch.bfloat16):
         super().__init__(device=device, torch_dtype=torch_dtype)
         
@@ -63,7 +63,7 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
         is_train: bool = True,
     ) -> Any:
         # Create a pipe
-        pipe = Video2WorldMultiviewPipeline(device=device, torch_dtype=torch_dtype)
+        pipe = Video2WorldCheatviewPipeline(device=device, torch_dtype=torch_dtype)
         pipe.config = config
         pipe.precision = {
             "float32": torch.float32,
@@ -332,7 +332,7 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
                 net_state_in_B_C_T_H_W
             )
             gt_video_mask = torch.zeros_like(condition_video_mask)
-            # gt_video_mask[:, :, 0, :, :] = 1
+            gt_video_mask[:, :, 0, :, :] = 1
 
             if self.config.conditioning_strategy == str(ConditioningStrategy.FRAME_REPLACE):
                 # In case of frame replacement strategy, replace the first few frames of the video with the conditional frames
