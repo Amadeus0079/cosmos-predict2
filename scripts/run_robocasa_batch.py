@@ -10,8 +10,8 @@ import sys
 from pathlib import Path
 
 # 基础路径配置
-ROBOCASA_BASE = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/robocasa/datasets/v0.1/single_stage/kitchen_pnp"
-OUTPUT_DIR = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_im256_ep100_cam2+4"
+ROBOCASA_BASE = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/robocasa/datasets_hdd/v0.1/single_stage/kitchen_pnp"
+OUTPUT_DIR = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_im256_ep100_cam2+8_fov75"
 SCRIPT_PATH = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/scripts/get_robocasa_data.py"
 
 # 定义任务列表（手动指定，确保顺序和完整性）
@@ -27,12 +27,12 @@ TASKS = [
 ]
 
 def find_hdf5_file(task_name):
-    """在指定任务目录下查找 demo_im256_ep100_cam2+4.hdf5 文件"""
+    """在指定任务目录下查找 demo_im256_ep100_cam2+8_fov60.hdf5 文件"""
     task_dir = os.path.join(ROBOCASA_BASE, task_name)
 
     for root, dirs, files in os.walk(task_dir):
         for file in files:
-            if file == "demo_im256_ep100_cam2+4.hdf5":
+            if file == "demo_im256_ep100_cam2+8_fov75.hdf5":
                 return os.path.join(root, file)
     return None
 
@@ -86,7 +86,7 @@ def main():
         hdf5_path = find_hdf5_file(task)
 
         if not hdf5_path:
-            print(f"警告: 未找到任务 {task} 的 demo_im256_ep100_cam2+4.hdf5 文件，跳过")
+            print(f"警告: 未找到任务 {task} 的 demo_im256_ep100_cam2+8_fov60.hdf5 文件，跳过")
             results[task] = "未找到文件"
             continue
 

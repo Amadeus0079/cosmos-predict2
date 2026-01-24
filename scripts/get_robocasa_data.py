@@ -265,6 +265,10 @@ if __name__ == '__main__':
                             "robot0_randomview_1",
                             "robot0_randomview_2",
                             "robot0_randomview_3",
+                            "robot0_randomview_4",
+                            "robot0_randomview_5",
+                            "robot0_randomview_6",
+                            "robot0_randomview_7",
                         ],
                         help="最大线程数，默认自动根据CPU核心数确定")
     

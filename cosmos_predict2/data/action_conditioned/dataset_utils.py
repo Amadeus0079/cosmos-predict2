@@ -31,6 +31,7 @@ from pytorch3d.structures import Pointclouds
 import open3d as o3d
 import cv2
 from scipy.spatial.transform import Rotation
+from torchvision.transforms import InterpolationMode
 
 
 def alpha2rotm(a):
@@ -138,7 +139,8 @@ class Resize_Preprocess:
         torch.Tensor: The transformed video frames.
         """
         # Resize each frame in the video
-        resized_frames = torch.stack([F.resize(frame, self.size, antialias=True) for frame in video_frames])
+        resized_frames = torch.stack([F.resize(frame, self.size, interpolation=InterpolationMode.NEAREST, # 指定最近邻
+                                        antialias=False) for frame in video_frames])
         return resized_frames
 
 

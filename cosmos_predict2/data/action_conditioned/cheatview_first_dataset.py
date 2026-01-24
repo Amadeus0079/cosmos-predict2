@@ -63,7 +63,7 @@ from cosmos_predict2.data.action_conditioned.dataset_utils import (
 )
 
 
-class CheatViewDataset(Dataset):
+class CheatViewFirstDataset(Dataset):
     def __init__(
         self,
         train_annotation_path,
@@ -734,7 +734,7 @@ class CheatViewDataset(Dataset):
                 merged_pointclouds,
                 extrinsic_matrixs=extrinsic_matrixs_render,
                 intrinsic_matrixs=intrinsic_matrixs,
-                point_size=4,
+                point_size=6,
                 height=height,
                 width=width,
                 background_color=(1, 1, 1),
@@ -746,11 +746,11 @@ class CheatViewDataset(Dataset):
 
             # === CHEAT: Replace first frame with actual RGB from global frame 0 ===
             # Load the first frame (frame 0) of the pred_cam from the entire trajectory
-            # cheat_frame, _ = self._get_obs(label, [0], pred_cam, pre_encode=False)  # [1, C, H, W]
-            # cheat_frame = cheat_frame.permute(1, 0, 2, 3).cuda()  # [C, 1, H, W]
-            cheat_id = frame_ids[0]
-            cheat_frame = self._get_ref_frame(label, cheat_id, pred_cam)  # [C, H, W]
-            cheat_frame = cheat_frame.unsqueeze(1)
+            cheat_frame, _ = self._get_obs(label, [0], pred_cam, pre_encode=False)  # [1, C, H, W]
+            cheat_frame = cheat_frame.permute(1, 0, 2, 3).cuda()  # [C, 1, H, W]
+            # cheat_id = frame_ids[0]
+            # cheat_frame = self._get_ref_frame(label, cheat_id, pred_cam)  # [C, H, W]
+            # cheat_frame = cheat_frame.unsqueeze(1)
 
             # Replace the first frame of render_image with cheat_frame
             render_image[:, 0:1, :, :] = cheat_frame
@@ -802,15 +802,15 @@ if __name__ == "__main__":
     import mediapy
     import torch.nn.functional as F
 
-    base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_im256_ep100_pnpall_fov75"
+    base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_im256_ep100_pnpall_fov60"
     train_annotation_path = os.path.join(base_path, "annotation/train")
     val_annotation_path = os.path.join(base_path, "annotation/val")
     test_annotation_path = os.path.join(base_path, "annotation/test")
 
-    output_dir = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/output/cheatview"
+    output_dir = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/output/cheatviewfirst"
     os.makedirs(output_dir, exist_ok=True)
 
-    train_dataset = CheatViewDataset(
+    train_dataset = CheatViewFirstDataset(
         train_annotation_path=train_annotation_path,
         val_annotation_path=val_annotation_path,
         test_annotation_path=test_annotation_path,
@@ -851,8 +851,8 @@ if __name__ == "__main__":
     print(f"Random views: {train_dataset.num_randomviews}")
 
     # Test loading samples and save videos
-    num_samples_to_save = 8
-    for i in range(90000, 90000 + num_samples_to_save):
+    num_samples_to_save = 16
+    for i in range(100000, 100000 + num_samples_to_save):
         data = train_dataset[i]
         print(f"\nSample {i}:")
         print(f"  randomview_id: {data['randomview_id']}")

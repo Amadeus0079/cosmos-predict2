@@ -26,6 +26,9 @@ from cosmos_predict2.data.action_conditioned.multiview_gripper_dataset import Mu
 from cosmos_predict2.data.action_conditioned.anyview_dataset import AnyViewDataset
 from cosmos_predict2.data.action_conditioned.novelview_dataset import NovelViewDataset
 from cosmos_predict2.data.action_conditioned.cheatview_dataset import CheatViewDataset
+from cosmos_predict2.data.action_conditioned.cheatview_first_dataset import CheatViewFirstDataset
+from cosmos_predict2.data.action_conditioned.flexiv_dataset import FlexivDataset
+from cosmos_predict2.data.action_conditioned.interval_dataset import IntervalDataset
 from imaginaire.lazy_config import LazyCall as L
 
 base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_128/"
@@ -47,6 +50,16 @@ novelview_base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangy
 novelview_train_annotation_path = os.path.join(novelview_base_path, "annotation/train")
 novelview_val_annotation_path = os.path.join(novelview_base_path, "annotation/val")
 novelview_test_annotation_path = os.path.join(novelview_base_path, "annotation/test")
+
+cheatview_base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_im256_ep100_pnpall_fov60"
+cheatview_train_annotation_path = os.path.join(cheatview_base_path, "annotation/train")
+cheatview_val_annotation_path = os.path.join(cheatview_base_path, "annotation/val")
+cheatview_test_annotation_path = os.path.join(cheatview_base_path, "annotation/test")
+
+flexiv_base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/lerobot_panall"
+flexiv_train_annotation_path = os.path.join(flexiv_base_path, "annotation/train")
+flexiv_val_annotation_path = os.path.join(flexiv_base_path, "annotation/val")
+flexiv_test_annotation_path = os.path.join(flexiv_base_path, "annotation/test")
 
 robocasa_train_dataset = L(MultiCamDataset)(
     train_annotation_path=train_annotation_path,
@@ -385,10 +398,10 @@ robocasa_novelview_short_val_dataset = L(NovelViewDataset)(
 )
 
 robocasa_cheatview_train_dataset = L(CheatViewDataset)(
-    train_annotation_path=novelview_train_annotation_path,
-    val_annotation_path=novelview_val_annotation_path,
-    test_annotation_path=novelview_test_annotation_path,
-    video_path=novelview_base_path,
+    train_annotation_path=cheatview_train_annotation_path,
+    val_annotation_path=cheatview_val_annotation_path,
+    test_annotation_path=cheatview_test_annotation_path,
+    video_path=cheatview_base_path,
     sequence_interval=1,
     num_frames=9,
     cam_ids=[
@@ -398,6 +411,10 @@ robocasa_cheatview_train_dataset = L(CheatViewDataset)(
         'robot0_randomview_1',
         'robot0_randomview_2',
         'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
     ],
     gt_cams=['robot0_agentview_center', 'robot0_eye_in_hand'],
     randomview_names=[
@@ -405,6 +422,10 @@ robocasa_cheatview_train_dataset = L(CheatViewDataset)(
         'robot0_randomview_1',
         'robot0_randomview_2',
         'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
     ],
     accumulate_action=False,
     video_size=[256, 256],
@@ -413,10 +434,10 @@ robocasa_cheatview_train_dataset = L(CheatViewDataset)(
 )
 
 robocasa_cheatview_val_dataset = L(CheatViewDataset)(
-    train_annotation_path=novelview_train_annotation_path,
-    val_annotation_path=novelview_val_annotation_path,
-    test_annotation_path=novelview_test_annotation_path,
-    video_path=novelview_base_path,
+    train_annotation_path=cheatview_train_annotation_path,
+    val_annotation_path=cheatview_val_annotation_path,
+    test_annotation_path=cheatview_test_annotation_path,
+    video_path=cheatview_base_path,
     sequence_interval=1,
     num_frames=9,
     cam_ids=[
@@ -426,6 +447,10 @@ robocasa_cheatview_val_dataset = L(CheatViewDataset)(
         'robot0_randomview_1',
         'robot0_randomview_2',
         'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
     ],
     gt_cams=['robot0_agentview_center', 'robot0_eye_in_hand'],
     randomview_names=[
@@ -433,9 +458,233 @@ robocasa_cheatview_val_dataset = L(CheatViewDataset)(
         'robot0_randomview_1',
         'robot0_randomview_2',
         'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
     ],
     accumulate_action=False,
     video_size=[256, 256],
+    val_start_frame_interval=1,
+    mode="val",
+)
+
+robocasa_cheatview_first_train_dataset = L(CheatViewFirstDataset)(
+    train_annotation_path=cheatview_train_annotation_path,
+    val_annotation_path=cheatview_val_annotation_path,
+    test_annotation_path=cheatview_test_annotation_path,
+    video_path=cheatview_base_path,
+    sequence_interval=1,
+    num_frames=9,
+    cam_ids=[
+        'robot0_agentview_center',
+        'robot0_eye_in_hand',
+        'robot0_randomview_0',
+        'robot0_randomview_1',
+        'robot0_randomview_2',
+        'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
+    ],
+    gt_cams=['robot0_agentview_center', 'robot0_eye_in_hand'],
+    randomview_names=[
+        'robot0_randomview_0',
+        'robot0_randomview_1',
+        'robot0_randomview_2',
+        'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
+    ],
+    accumulate_action=False,
+    video_size=[256, 256],
+    val_start_frame_interval=1,
+    mode="train",
+)
+
+robocasa_cheatview_first_val_dataset = L(CheatViewFirstDataset)(
+    train_annotation_path=cheatview_train_annotation_path,
+    val_annotation_path=cheatview_val_annotation_path,
+    test_annotation_path=cheatview_test_annotation_path,
+    video_path=cheatview_base_path,
+    sequence_interval=1,
+    num_frames=9,
+    cam_ids=[
+        'robot0_agentview_center',
+        'robot0_eye_in_hand',
+        'robot0_randomview_0',
+        'robot0_randomview_1',
+        'robot0_randomview_2',
+        'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
+    ],
+    gt_cams=['robot0_agentview_center', 'robot0_eye_in_hand'],
+    randomview_names=[
+        'robot0_randomview_0',
+        'robot0_randomview_1',
+        'robot0_randomview_2',
+        'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
+    ],
+    accumulate_action=False,
+    video_size=[256, 256],
+    val_start_frame_interval=1,
+    mode="val",
+)
+
+robocasa_interval_train_dataset = L(IntervalDataset)(
+    train_annotation_path=cheatview_train_annotation_path,
+    val_annotation_path=cheatview_val_annotation_path,
+    test_annotation_path=cheatview_test_annotation_path,
+    video_path=cheatview_base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=[
+        'robot0_agentview_center',
+        'robot0_eye_in_hand',
+        'robot0_randomview_0',
+        'robot0_randomview_1',
+        'robot0_randomview_2',
+        'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
+    ],
+    gt_cams=['robot0_agentview_center', 'robot0_eye_in_hand'],
+    randomview_names=[
+        'robot0_randomview_0',
+        'robot0_randomview_1',
+        'robot0_randomview_2',
+        'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
+    ],
+    accumulate_action=False,
+    video_size=[256, 256],
+    val_start_frame_interval=1,
+    mode="train",
+)
+
+robocasa_interval_val_dataset = L(IntervalDataset)(
+    train_annotation_path=cheatview_train_annotation_path,
+    val_annotation_path=cheatview_val_annotation_path,
+    test_annotation_path=cheatview_test_annotation_path,
+    video_path=cheatview_base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=[
+        'robot0_agentview_center',
+        'robot0_eye_in_hand',
+        'robot0_randomview_0',
+        'robot0_randomview_1',
+        'robot0_randomview_2',
+        'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
+    ],
+    gt_cams=['robot0_agentview_center', 'robot0_eye_in_hand'],
+    randomview_names=[
+        'robot0_randomview_0',
+        'robot0_randomview_1',
+        'robot0_randomview_2',
+        'robot0_randomview_3',
+        'robot0_randomview_4',
+        'robot0_randomview_5',
+        'robot0_randomview_6',
+        'robot0_randomview_7',
+    ],
+    accumulate_action=False,
+    video_size=[256, 256],
+    val_start_frame_interval=1,
+    mode="val",
+)
+
+flexiv_train_dataset = L(FlexivDataset)(
+    train_annotation_path=flexiv_train_annotation_path,
+    val_annotation_path=flexiv_val_annotation_path,
+    test_annotation_path=flexiv_test_annotation_path,
+    video_path=flexiv_base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=[
+        'side',
+        'wrist',
+        'randomview_0',
+        'randomview_1',
+        'randomview_2',
+        'randomview_3',
+        'randomview_4',
+        'randomview_5',
+        'randomview_6',
+        'randomview_7',
+    ],
+    gt_cams=['side', 'wrist'],
+    noise_cams=['side'],
+    noise_rate=0.4,
+    randomview_names=[
+        'randomview_0',
+        'randomview_1',
+        'randomview_2',
+        'randomview_3',
+        'randomview_4',
+        'randomview_5',
+        'randomview_6',
+        'randomview_7',
+    ],
+    accumulate_action=False,
+    video_size=[240, 320],
+    val_start_frame_interval=1,
+    mode="train",
+)
+
+flexiv_val_dataset = L(FlexivDataset)(
+    train_annotation_path=flexiv_train_annotation_path,
+    val_annotation_path=flexiv_val_annotation_path,
+    test_annotation_path=flexiv_test_annotation_path,
+    video_path=flexiv_base_path,
+    sequence_interval=1,
+    num_frames=17,
+    cam_ids=[
+        'side',
+        'wrist',
+        'randomview_0',
+        'randomview_1',
+        'randomview_2',
+        'randomview_3',
+        'randomview_4',
+        'randomview_5',
+        'randomview_6',
+        'randomview_7',
+    ],
+    gt_cams=['side', 'wrist'],
+    noise_cams=['side'],
+    noise_rate=0.4,
+    randomview_names=[
+        'randomview_0',
+        'randomview_1',
+        'randomview_2',
+        'randomview_3',
+        'randomview_4',
+        'randomview_5',
+        'randomview_6',
+        'randomview_7',
+    ],
+    accumulate_action=False,
+    video_size=[240, 320],
     val_start_frame_interval=1,
     mode="val",
 )
@@ -591,6 +840,49 @@ robocasa_cheatview_val_dataloader = L(DataLoader)(
     drop_last=True,
 )
 
+robocasa_cheatview_first_train_dataloader = L(DataLoader)(
+    dataset=robocasa_cheatview_first_train_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_cheatview_first_train_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+robocasa_cheatview_first_val_dataloader = L(DataLoader)(
+    dataset=robocasa_cheatview_first_val_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_cheatview_first_val_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+robocasa_interval_train_dataloader = L(DataLoader)(
+    dataset=robocasa_interval_train_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_interval_train_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+robocasa_interval_val_dataloader = L(DataLoader)(
+    dataset=robocasa_interval_val_dataset,
+    sampler=L(get_sampler)(dataset=robocasa_interval_val_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+flexiv_train_dataloader = L(DataLoader)(
+    dataset=flexiv_train_dataset,
+    sampler=L(get_sampler)(dataset=flexiv_train_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+flexiv_val_dataloader = L(DataLoader)(
+    dataset=flexiv_val_dataset,
+    sampler=L(get_sampler)(dataset=flexiv_val_dataset),
+    batch_size=1,
+    drop_last=True,
+)
+
+
 
 def register_training_and_val_data_action_conditioned():
     cs = ConfigStore.instance()
@@ -715,4 +1007,40 @@ def register_training_and_val_data_action_conditioned():
         package="dataloader_val",
         name="robocasa_cheatview_val",
         node=robocasa_cheatview_val_dataloader,
+    )    
+    cs.store(
+        group="dataloader_train",
+        package="dataloader_train",
+        name="robocasa_cheatview_first_train",
+        node=robocasa_cheatview_first_train_dataloader,
+    )
+    cs.store(
+        group="dataloader_val",
+        package="dataloader_val",
+        name="robocasa_cheatview_first_val",
+        node=robocasa_cheatview_first_val_dataloader,
+    )
+    cs.store(
+        group="dataloader_train",
+        package="dataloader_train",
+        name="robocasa_interval_train",
+        node=robocasa_interval_train_dataloader,
+    )
+    cs.store(
+        group="dataloader_val",
+        package="dataloader_val",
+        name="robocasa_interval_val",
+        node=robocasa_interval_val_dataloader,
+    )
+    cs.store(
+        group="dataloader_train",
+        package="dataloader_train",
+        name="flexiv_train",
+        node=flexiv_train_dataloader,
+    )
+    cs.store(
+        group="dataloader_val",
+        package="dataloader_val",
+        name="flexiv_val",
+        node=flexiv_val_dataloader,
     )

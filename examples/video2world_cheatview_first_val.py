@@ -36,7 +36,8 @@ from cosmos_predict2.configs.action_conditioned.config import (
 from cosmos_predict2.data.action_conditioned.novelview_dataset import NovelViewDataset
 from cosmos_predict2.configs.action_conditioned.defaults.data import (
     robocasa_novelview_val_dataset,
-    robocasa_cheatview_val_dataset
+    robocasa_cheatview_val_dataset,
+    robocasa_cheatview_first_val_dataset
 )
 from cosmos_predict2.pipelines.video2world_multiview import Video2WorldMultiviewPipeline
 from cosmos_predict2.pipelines.video2world_cheatview import Video2WorldCheatviewPipeline
@@ -121,13 +122,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sample_interval",
         type=int,
-        default=64,
+        default=10000,
         help="Interval between samples to process",
     )
     parser.add_argument(
         "--max_samples",
         type=int,
-        default=9100,
+        default=400000,
         help="Maximum number of samples to process",
     )
     parser.add_argument("--disable_guardrail", action="store_true", help="Disable guardrail checks on prompts")
@@ -254,7 +255,7 @@ def generate_video(args: argparse.Namespace, pipe: Video2WorldCheatviewPipeline,
     log.info(f"Number of randomviews per sequence: {num_randomviews}")
     log.info(f"Processing samples with interval: {args.sample_interval}")
 
-    for j in range(8600, min(args.max_samples, total_samples), args.sample_interval):
+    for j in range(0, min(args.max_samples, total_samples), args.sample_interval):
         for i in range(j, j + 8):
             batch_data = val_dataset[i]
 
@@ -263,7 +264,7 @@ def generate_video(args: argparse.Namespace, pipe: Video2WorldCheatviewPipeline,
             randomview_name = batch_data['randomview_name']
 
             # Construct output path with randomview info
-            output_path = f"output/cheatview_cont/60_cheatview_{args.model_type}_{dit_name}_sample{args.num_sampling_step}_{randomview_name}_idx{i}_rv{randomview_id}.mp4"
+            output_path = f"output/cheatview_first/first_cheatview_{args.model_type}_{dit_name}_sample{args.num_sampling_step}_{randomview_name}_idx{i}_rv{randomview_id}.mp4"
 
             log.info(f"Processing sample {i}/{total_samples}, randomview: {randomview_name} (id: {randomview_id})")
 
@@ -293,7 +294,8 @@ def cleanup_distributed():
 if __name__ == "__main__":
     args = parse_args()
     # val_dataset = instantiate(robocasa_novelview_val_dataset)
-    val_dataset = instantiate(robocasa_cheatview_val_dataset)
+    # val_dataset = instantiate(robocasa_cheatview_val_dataset)
+    val_dataset = instantiate(robocasa_cheatview_first_val_dataset)
 
     log.info(f"Loaded CheatViewDataset with {len(val_dataset)} samples")
     log.info(f"Base sequences: {len(val_dataset.samples)}")

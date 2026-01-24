@@ -18,14 +18,14 @@ from hydra.core.config_store import ConfigStore
 cs = ConfigStore.instance()
 
 """
-torchrun --nproc_per_node=4 --master_port=12341 -m scripts.train --config=cosmos_predict2/configs/base/config.py -- experiment="predict2_video2world_2b_multiview_training_cheatview"
+torchrun --nproc_per_node=4 --master_port=12344 -m scripts.train --config=cosmos_predict2/configs/base/config.py -- experiment="predict2_video2world_2b_flexiv"
 """
-predict2_video2world_2b_multiview_training_cheatview = dict(
+predict2_video2world_2b_flexiv = dict(
     defaults=[
-        {"override /model": "predict2_v2w_2b_multiview_fsdp_cheatview"},
+        {"override /model": "predict2_v2w_2b_multiview_fsdp_long16"},
         {"override /optimizer": "fusedadamw"},
         {"override /ckpt_type": "standard"},
-        {"override /dataloader_train": "robocasa_cheatview_train"},
+        {"override /dataloader_train": "flexiv_train"},
         "_self_",
     ],
     model=dict(
@@ -33,7 +33,7 @@ predict2_video2world_2b_multiview_training_cheatview = dict(
             fsdp_shard_size=1,
         )
     ),
-    job=dict(group="debug", name="cheatview_ref75_${now:%Y-%m-%d}_${now:%H-%M-%S}"),
+    job=dict(group="real", name="flexiv_${now:%Y-%m-%d}_${now:%H-%M-%S}"),
     model_parallel=dict(
         context_parallel_size=1,
     ),
@@ -42,7 +42,7 @@ predict2_video2world_2b_multiview_training_cheatview = dict(
     ),
     trainer=dict(
         distributed_parallelism="fsdp",
-        max_iter=30000,
+        max_iter=20000,
     ),
     checkpoint=dict(
         save_iter=500,
@@ -52,7 +52,7 @@ predict2_video2world_2b_multiview_training_cheatview = dict(
 
 for _item in [
     # predict2_video2world_2b
-    predict2_video2world_2b_multiview_training_cheatview,
+    predict2_video2world_2b_flexiv,
 ]:
     # Get the experiment name from the global variable, e.g. exp01_wan_lora -> experiment_name = "exp01_wan_lora"
     experiment_name = [name.lower() for name, value in globals().items() if value is _item][0]

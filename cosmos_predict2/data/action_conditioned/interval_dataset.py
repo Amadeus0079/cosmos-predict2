@@ -14,8 +14,6 @@
 # limitations under the License.
 
 """
-CheatViewDataset: Similar to NovelViewDataset but with a "cheat" first frame.
-
 The first frame of pred_video is the actual RGB image from the pred_cam at frame 0
 (global first frame of the trajectory), while the remaining frames are rendered
 from the merged GT pointcloud.
@@ -63,7 +61,7 @@ from cosmos_predict2.data.action_conditioned.dataset_utils import (
 )
 
 
-class CheatViewDataset(Dataset):
+class IntervalDataset(Dataset):
     def __init__(
         self,
         train_annotation_path,
@@ -221,26 +219,32 @@ class CheatViewDataset(Dataset):
             for future in tqdm(as_completed(future_to_ann_file), total=len(ann_files)):
                 samples.extend(future.result())
         return samples
-
+    
     def _load_and_process_ann_file(self, ann_file):
         samples = []
         with open(ann_file, "r") as f:
             ann = json.load(f)
 
         n_frames = len(ann["state"])
+        # 从第 0 帧开始，按步长移动“当前帧”的位置
         for frame_i in range(0, n_frames, self.start_frame_interval):
+            # 如果当前帧太靠前，不足以分出这么多帧，可以根据需求跳过
+            # 如果允许重复采样（如第0帧重复多次），可以去掉这个判断
+            if frame_i < self.sequence_length - 1:
+                continue
+                
             sample = dict()
             sample["ann_file"] = ann_file
-            sample["frame_ids"] = []
-            curr_frame_i = frame_i
-            while True:
-                if curr_frame_i > (n_frames - 1):
-                    break
-                sample["frame_ids"].append(curr_frame_i)
-                if len(sample["frame_ids"]) == self.sequence_length:
-                    break
-                curr_frame_i += self.sequence_interval
-            # make sure there are sequence_length number of frames
+            
+            # --- 修改逻辑开始 ---
+            # 在 [0, frame_i] 区间内均匀采样 sequence_length 个索引
+            # 使用 torch.linspace 或 np.linspace 确保两端对齐
+            import numpy as np
+            indices = np.linspace(0, frame_i, self.sequence_length, dtype=int)
+            sample["frame_ids"] = indices.tolist()
+            # --- 修改逻辑结束 ---
+
+            # 确保样本满足长度要求（linspace 保证了这一点）
             if len(sample["frame_ids"]) == self.sequence_length:
                 samples.append(sample)
         return samples
@@ -734,7 +738,7 @@ class CheatViewDataset(Dataset):
                 merged_pointclouds,
                 extrinsic_matrixs=extrinsic_matrixs_render,
                 intrinsic_matrixs=intrinsic_matrixs,
-                point_size=4,
+                point_size=6,
                 height=height,
                 width=width,
                 background_color=(1, 1, 1),
@@ -746,11 +750,11 @@ class CheatViewDataset(Dataset):
 
             # === CHEAT: Replace first frame with actual RGB from global frame 0 ===
             # Load the first frame (frame 0) of the pred_cam from the entire trajectory
-            # cheat_frame, _ = self._get_obs(label, [0], pred_cam, pre_encode=False)  # [1, C, H, W]
-            # cheat_frame = cheat_frame.permute(1, 0, 2, 3).cuda()  # [C, 1, H, W]
-            cheat_id = frame_ids[0]
-            cheat_frame = self._get_ref_frame(label, cheat_id, pred_cam)  # [C, H, W]
-            cheat_frame = cheat_frame.unsqueeze(1)
+            cheat_frame, _ = self._get_obs(label, [0], pred_cam, pre_encode=False)  # [1, C, H, W]
+            cheat_frame = cheat_frame.permute(1, 0, 2, 3).cuda()  # [C, 1, H, W]
+            # cheat_id = frame_ids[0]
+            # cheat_frame = self._get_ref_frame(label, cheat_id, pred_cam)  # [C, H, W]
+            # cheat_frame = cheat_frame.unsqueeze(1)
 
             # Replace the first frame of render_image with cheat_frame
             render_image[:, 0:1, :, :] = cheat_frame
@@ -802,21 +806,21 @@ if __name__ == "__main__":
     import mediapy
     import torch.nn.functional as F
 
-    base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_im256_ep100_pnpall_fov75"
+    base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_im256_ep100_pnpall_fov60"
     train_annotation_path = os.path.join(base_path, "annotation/train")
     val_annotation_path = os.path.join(base_path, "annotation/val")
     test_annotation_path = os.path.join(base_path, "annotation/test")
 
-    output_dir = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/output/cheatview"
+    output_dir = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/output/interval"
     os.makedirs(output_dir, exist_ok=True)
 
-    train_dataset = CheatViewDataset(
+    train_dataset = IntervalDataset(
         train_annotation_path=train_annotation_path,
         val_annotation_path=val_annotation_path,
         test_annotation_path=test_annotation_path,
         video_path=base_path,
         sequence_interval=1,
-        num_frames=9,
+        num_frames=17,
         cam_ids=[
             'robot0_agentview_center',
             'robot0_eye_in_hand',
@@ -851,8 +855,8 @@ if __name__ == "__main__":
     print(f"Random views: {train_dataset.num_randomviews}")
 
     # Test loading samples and save videos
-    num_samples_to_save = 8
-    for i in range(90000, 90000 + num_samples_to_save):
+    num_samples_to_save = 16
+    for i in range(100000, 100000 + num_samples_to_save):
         data = train_dataset[i]
         print(f"\nSample {i}:")
         print(f"  randomview_id: {data['randomview_id']}")
@@ -873,7 +877,7 @@ if __name__ == "__main__":
         combined_video = np.concatenate([video_np, pred_video_np], axis=2)  # [T, H, 2*W, C]
 
         # Save video
-        output_path = os.path.join(output_dir, f"newcheat_sample_{i}_rv{data['randomview_id']}_{data['randomview_name']}.mp4")
+        output_path = os.path.join(output_dir, f"interval_sample_{i}_rv{data['randomview_id']}_{data['randomview_name']}.mp4")
         mediapy.write_video(output_path, combined_video, fps=4)
         print(f"  Saved to: {output_path}")
 

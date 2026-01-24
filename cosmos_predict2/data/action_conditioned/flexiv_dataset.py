@@ -63,7 +63,7 @@ from cosmos_predict2.data.action_conditioned.dataset_utils import (
 )
 
 
-class CheatViewDataset(Dataset):
+class FlexivDataset(Dataset):
     def __init__(
         self,
         train_annotation_path,
@@ -74,10 +74,12 @@ class CheatViewDataset(Dataset):
         num_frames,
         cam_ids,
         gt_cams=None,
+        noise_cams=None,
+        noise_rate=0.3,
         pred_cams=None,
         randomview_names=None,
         accumulate_action=False,
-        video_size=[256, 256],
+        video_size=[240, 320],
         val_start_frame_interval=1,
         debug=False,
         normalize=False,
@@ -151,24 +153,32 @@ class CheatViewDataset(Dataset):
         self.load_t5_embeddings = load_t5_embeddings
         self.load_action = load_action
         self.load_state = load_state
+        self.video_size = video_size
 
         # Set default cameras
         self.cam_ids = cam_ids
         if gt_cams is None:
-            self.gt_cams = ['robot0_agentview_center', 'robot0_eye_in_hand']
+            self.gt_cams = ['side', 'wrist']
         else:
             self.gt_cams = gt_cams
+            
+        if noise_cams is None:
+            self.noise_cams = ['wrist']
+        else:
+            self.noise_cams = noise_cams
+            
+        self.noise_rate = noise_rate
 
         if randomview_names is None:
             self.randomview_names = [
-                'robot0_randomview_0',
-                'robot0_randomview_1',
-                'robot0_randomview_2',
-                'robot0_randomview_3',
-                'robot0_randomview_4',
-                'robot0_randomview_5',
-                'robot0_randomview_6',
-                'robot0_randomview_7'
+                'randomview_0',
+                'randomview_1',
+                'randomview_2',
+                'randomview_3',
+                'randomview_4',
+                'randomview_5',
+                'randomview_6',
+                'randomview_7'
             ]
         else:
             self.randomview_names = randomview_names
@@ -228,19 +238,26 @@ class CheatViewDataset(Dataset):
             ann = json.load(f)
 
         n_frames = len(ann["state"])
+        self.n_frames = n_frames
+        # 从第 0 帧开始，按步长移动“当前帧”的位置
         for frame_i in range(0, n_frames, self.start_frame_interval):
+            # 如果当前帧太靠前，不足以分出这么多帧，可以根据需求跳过
+            # 如果允许重复采样（如第0帧重复多次），可以去掉这个判断
+            if frame_i < self.sequence_length - 1:
+                continue
+                
             sample = dict()
             sample["ann_file"] = ann_file
-            sample["frame_ids"] = []
-            curr_frame_i = frame_i
-            while True:
-                if curr_frame_i > (n_frames - 1):
-                    break
-                sample["frame_ids"].append(curr_frame_i)
-                if len(sample["frame_ids"]) == self.sequence_length:
-                    break
-                curr_frame_i += self.sequence_interval
-            # make sure there are sequence_length number of frames
+            
+            # --- 修改逻辑开始 ---
+            # 在 [0, frame_i] 区间内均匀采样 sequence_length 个索引
+            # 使用 torch.linspace 或 np.linspace 确保两端对齐
+            import numpy as np
+            indices = np.linspace(0, frame_i, self.sequence_length, dtype=int)
+            sample["frame_ids"] = indices.tolist()
+            # --- 修改逻辑结束 ---
+
+            # 确保样本满足长度要求（linspace 保证了这一点）
             if len(sample["frame_ids"]) == self.sequence_length:
                 samples.append(sample)
         return samples
@@ -311,6 +328,7 @@ class CheatViewDataset(Dataset):
         all_depths = np.load(depth_path)
         depths = all_depths[frame_ids]
         depths = torch.tensor(depths)
+        depths = depths.unsqueeze(3)
 
         depths = depths.permute(0, 3, 1, 2)
         depths = self.depth_preprocess(depths)  # [T, C, H, W]
@@ -417,13 +435,19 @@ class CheatViewDataset(Dataset):
         return torch.from_numpy(arm_actions)
 
     def _get_cam_parameters(self, label, cam_id, frame_ids):
+        frame_num = len(frame_ids)
+        
         all_extrinsic_matrixs = label["extrinsic_matrix"][cam_id]
         all_extrinsic_matrixs = torch.tensor(all_extrinsic_matrixs)
         extrinsic_matrixs = all_extrinsic_matrixs[frame_ids]
 
         all_intrinsic_matrixs = label["intrinsic_matrix"][cam_id]
         all_intrinsic_matrixs = torch.tensor(all_intrinsic_matrixs)
-        intrinsic_matrixs = all_intrinsic_matrixs[frame_ids]
+        intrinsic_matrixs = all_intrinsic_matrixs.unsqueeze(0).repeat(frame_num, 1, 1)
+        
+        # extrinsic_matrixs = torch.inverse(extrinsic_matrixs)
+        img_scale = self.video_size[0] / 480
+        intrinsic_matrixs[:, :2] *= img_scale
 
         return extrinsic_matrixs, intrinsic_matrixs  # (T, 4, 4)
 
@@ -491,6 +515,23 @@ class CheatViewDataset(Dataset):
             points=world_points_list,
             features=valid_colors
         )
+        
+        # points = world_points_list[0].detach().cpu().numpy()
+        # colors = valid_colors[0].detach().cpu().numpy()
+
+        # # 3. 创建 Open3D 点云对象
+        # pcd = o3d.geometry.PointCloud()
+        # pcd.points = o3d.utility.Vector3dVector(points)
+        # pcd.colors = o3d.utility.Vector3dVector(colors)
+
+        # # 4. 保存为 .ply 文件
+        # output_filename = f"output/0pointcloud_batch_{0}.ply"
+        # o3d.io.write_point_cloud(output_filename, pcd)
+
+        # print(f"成功保存点云至: {output_filename}")
+        
+        # return -1
+    
         return pointclouds
 
     def _rgbd_to_pointcloud(self, rgb, depth, intrinsics, extrinsics, depth_scale=1):
@@ -687,10 +728,16 @@ class CheatViewDataset(Dataset):
 
                 depth = self._get_depth(label, frame_ids, gt_cam)  # [T, C, H, W]
                 depth = depth.permute(1, 0, 2, 3).cuda()  # [1, T, H, W]
+                
+                if gt_cam in self.noise_cams:
+                    noise_mask = torch.rand(self.sequence_length) > self.noise_rate
+                    noise_mask[0] = 1
+                    depth[0] *= noise_mask[:, None, None].cuda()
 
                 extrinsic_matrixs, intrinsic_matrixs = self._get_cam_parameters(label, gt_cam, frame_ids)
                 extrinsic_matrixs = extrinsic_matrixs.cuda()  # [T, 4, 4]
                 intrinsic_matrixs = intrinsic_matrixs.cuda()  # [T, 4, 4]
+                extrinsic_matrixs = torch.inverse(extrinsic_matrixs)
 
                 # Build pointcloud from GT camera
                 video_T_C_H_W = video.permute(1, 0, 2, 3)
@@ -734,10 +781,10 @@ class CheatViewDataset(Dataset):
                 merged_pointclouds,
                 extrinsic_matrixs=extrinsic_matrixs_render,
                 intrinsic_matrixs=intrinsic_matrixs,
-                point_size=4,
+                point_size=6,
                 height=height,
                 width=width,
-                background_color=(1, 1, 1),
+                background_color=(0, 0, 0),
                 return_depth=True
             )
 
@@ -748,14 +795,14 @@ class CheatViewDataset(Dataset):
             # Load the first frame (frame 0) of the pred_cam from the entire trajectory
             # cheat_frame, _ = self._get_obs(label, [0], pred_cam, pre_encode=False)  # [1, C, H, W]
             # cheat_frame = cheat_frame.permute(1, 0, 2, 3).cuda()  # [C, 1, H, W]
-            cheat_id = frame_ids[0]
-            cheat_frame = self._get_ref_frame(label, cheat_id, pred_cam)  # [C, H, W]
-            cheat_frame = cheat_frame.unsqueeze(1)
+            # cheat_id = frame_ids[0]
+            # cheat_frame = self._get_ref_frame(label, 0, pred_cam)  # [C, H, W]
+            # cheat_frame = cheat_frame.unsqueeze(1)
 
             # Replace the first frame of render_image with cheat_frame
-            render_image[:, 0:1, :, :] = cheat_frame
+            # render_image[:, 0:1, :, :] = cheat_frame
             
-            data["video"][:, 0:1, :, :] = cheat_frame
+            # data["video"][:, 0:1, :, :] = cheat_frame
             # === END CHEAT ===
 
             data["pred_video"] = render_image
@@ -802,46 +849,48 @@ if __name__ == "__main__":
     import mediapy
     import torch.nn.functional as F
 
-    base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/robocasa_im256_ep100_pnpall_fov75"
+    base_path = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/datasets/lerobot_panall"
     train_annotation_path = os.path.join(base_path, "annotation/train")
     val_annotation_path = os.path.join(base_path, "annotation/val")
     test_annotation_path = os.path.join(base_path, "annotation/test")
 
-    output_dir = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/output/cheatview"
+    output_dir = "/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/output/flexiv"
     os.makedirs(output_dir, exist_ok=True)
 
-    train_dataset = CheatViewDataset(
+    train_dataset = FlexivDataset(
         train_annotation_path=train_annotation_path,
         val_annotation_path=val_annotation_path,
         test_annotation_path=test_annotation_path,
         video_path=base_path,
         sequence_interval=1,
-        num_frames=9,
+        num_frames=17,
         cam_ids=[
-            'robot0_agentview_center',
-            'robot0_eye_in_hand',
-            'robot0_randomview_0',
-            'robot0_randomview_1',
-            'robot0_randomview_2',
-            'robot0_randomview_3',
-            'robot0_randomview_4',
-            'robot0_randomview_5',
-            'robot0_randomview_6',
-            'robot0_randomview_7',
+            'side',
+            'wrist',
+            'randomview_0',
+            'randomview_1',
+            'randomview_2',
+            'randomview_3',
+            'randomview_4',
+            'randomview_5',
+            'randomview_6',
+            'randomview_7',
         ],
-        gt_cams=['robot0_agentview_center', 'robot0_eye_in_hand'],
+        gt_cams=['side', 'wrist'],
+        noise_cams=['side'],
+        noise_rate=0.4,
         randomview_names=[
-            'robot0_randomview_0',
-            'robot0_randomview_1',
-            'robot0_randomview_2',
-            'robot0_randomview_3',
-            'robot0_randomview_4',
-            'robot0_randomview_5',
-            'robot0_randomview_6',
-            'robot0_randomview_7',
+            'randomview_0',
+            'randomview_1',
+            'randomview_2',
+            'randomview_3',
+            'randomview_4',
+            'randomview_5',
+            'randomview_6',
+            'randomview_7',
         ],
         accumulate_action=False,
-        video_size=[256, 256],
+        video_size=[240, 320],
         val_start_frame_interval=1,
         mode="train",
     )
@@ -851,8 +900,8 @@ if __name__ == "__main__":
     print(f"Random views: {train_dataset.num_randomviews}")
 
     # Test loading samples and save videos
-    num_samples_to_save = 8
-    for i in range(90000, 90000 + num_samples_to_save):
+    num_samples_to_save = 16
+    for i in range(100000, 100000 + num_samples_to_save * 64, 64):
         data = train_dataset[i]
         print(f"\nSample {i}:")
         print(f"  randomview_id: {data['randomview_id']}")

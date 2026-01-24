@@ -696,9 +696,9 @@ class Video2WorldMultiviewPipeline(Video2WorldActionConditionedPipeline):
         # Decode
         video = self.decode(samples)  # shape: (B, C, T, H, W), possibly out of [-1, 1]
         
-        import torchvision
-        right_video = video.permute(0, 2, 3, 4, 1)
-        for b in range(n_sample):
-            torchvision.io.write_video(f"/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/output/robo{b}.mp4", ((right_video[b] + 1) / 2 * 255).to(torch.uint8), fps=1)
+        # import torchvision
+        # right_video = video.permute(0, 2, 3, 4, 1)
+        # for b in range(n_sample):
+        #     torchvision.io.write_video(f"/inspire/hdd/project/robot-reasoning/xiangyushun-p-xiangyushun/zichen/cosmos-predict2/output/robo{b}.mp4", ((right_video[b] + 1) / 2 * 255).to(torch.uint8), fps=1)
 
         return samples
